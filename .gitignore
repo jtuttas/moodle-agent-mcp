@@ -1,0 +1,24 @@
+# Abhängigkeiten
+node_modules/
+
+# Kompilierte Ausgabe
+dist/
+
+# Umgebungsvariablen (niemals committen!)
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
