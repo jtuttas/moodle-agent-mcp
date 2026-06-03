@@ -79,6 +79,7 @@ Dem Service folgende Funktionen hinzufügen:
 | `core_enrol_get_enrolled_users` | Schüler-Liste |
 | `core_completion_get_activities_completion_status` | Aktivitätsabschlüsse |
 | `core_course_get_contents` | Kursmodule |
+| `core_course_get_courses` | Kurs-Metadaten (Titel, Datum, …) |
 | `mod_assign_get_submissions` | Abgaben abrufen |
 | `mod_assign_get_grades` | Bewertungen lesen |
 | `mod_assign_save_grade` | Bewertung + Feedback speichern |
@@ -287,6 +288,15 @@ Verbindung prüfen: In Claude Desktop erscheint unten links ein Hammer-Symbol �
 ## Verfügbare Tools
 
 ### Schüler & Kurse
+
+#### `moodle_get_course_info`
+Gibt Metadaten eines oder mehrerer Kurse zurück.
+
+```
+courseids  (optional)  Array von Kurs-IDs – ohne Angabe werden ALLE Kurse abgerufen
+```
+
+Rückgabefelder pro Kurs: `id`, `fullname`, `shortname`, `summary` (HTML-bereinigt, max. 300 Zeichen), `format`, `categoryid`, `startdate`, `enddate`, `visible`, `numsections`, `lang`
 
 #### `moodle_get_enrolled_students`
 Gibt alle eingeschriebenen Nutzer eines Kurses zurück.
