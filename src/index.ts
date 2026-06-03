@@ -91,6 +91,27 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
+      name: "moodle_get_course_info",
+      description:
+        "Gibt Metadaten eines oder mehrerer Kurse zurück: Titel, Kurztitel, Beschreibung, Kategorie, Start-/Enddatum, Sichtbarkeit, Format und Anzahl Abschnitte. Ideal als erster Schritt um Kursinformationen im Kontext zu haben.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          courseids: {
+            type: "array",
+            items: { type: "number" },
+            description: "Liste von Kurs-IDs. Leer lassen um ALLE Kurse abzurufen.",
+          },
+          field: {
+            type: "string",
+            enum: ["id", "ids", "shortname", "idnumber", "category"],
+            description: "Suchfeld (Standard: 'id'). Mit 'ids' können mehrere IDs übergeben werden.",
+          },
+        },
+        required: [],
+      },
+    },
+    {
       name: "moodle_get_enrolled_students",
       description:
         "Gibt alle im Kurs eingeschriebenen Nutzer zurück (id, Name, E-Mail, Rollen). Nützlich um userids für andere Tools zu ermitteln.",
@@ -446,6 +467,77 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
+      // ------------------------------------------------------------------
+      case "moodle_get_course_info": {
+        type CourseRaw = {
+          id: number;
+          fullname: string;
+          shortname: string;
+          idnumber: string;
+          summary: string;
+          summaryformat: number;
+          format: string;
+          startdate: number;
+          enddate: number;
+          visible: number;
+          categoryid: number;
+          categoryname?: string;
+          numsections?: number;
+          enrolledusercount?: number;
+          completionnotify?: number;
+          lang?: string;
+          forcetheme?: string;
+          courseformatoptions?: Array<{ name: string; value: unknown }>;
+        };
+
+        let courses: CourseRaw[];
+
+        const courseids = args.courseids as number[] | undefined;
+
+        if (courseids && courseids.length > 0) {
+          // Konkrete IDs abrufen
+          const result = (await moodleCall("core_course_get_courses", {
+            options: { ids: courseids },
+          })) as CourseRaw[];
+          courses = result;
+        } else {
+          // Alle Kurse (ohne Filter)
+          const result = (await moodleCall("core_course_get_courses", {})) as CourseRaw[];
+          // Kurs 1 (Startseite) herausfiltern
+          courses = result.filter((c) => c.id !== 1);
+        }
+
+        const mapped = courses.map((c) => ({
+          id: c.id,
+          fullname: c.fullname,
+          shortname: c.shortname,
+          idnumber: c.idnumber || null,
+          summary: c.summary
+            ? c.summary.replace(/<[^>]*>/g, "").trim().slice(0, 300) || null
+            : null,
+          format: c.format,
+          categoryid: c.categoryid,
+          startdate: c.startdate
+            ? new Date(c.startdate * 1000).toISOString().slice(0, 10)
+            : null,
+          enddate: c.enddate && c.enddate > 0
+            ? new Date(c.enddate * 1000).toISOString().slice(0, 10)
+            : null,
+          visible: c.visible === 1,
+          lang: c.lang || null,
+          numsections: c.numsections ?? null,
+        }));
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${mapped.length} Kurs/Kurse gefunden:\n${JSON.stringify(mapped, null, 2)}`,
+            },
+          ],
+        };
+      }
+
       // ------------------------------------------------------------------
       case "moodle_get_enrolled_students": {
         const data = (await moodleCall("core_enrol_get_enrolled_users", {
