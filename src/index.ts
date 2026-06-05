@@ -488,12 +488,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const userid = args.userid as number;
         const includeCohorts = args.include_cohorts !== false; // Standard: true
 
-        // 1. Alle Kurse des Nutzers ermitteln
-        const userCourses = (await moodleCall("core_enrol_get_users_courses", {
-          userid,
-        })) as Array<{ id: number; fullname: string; shortname: string }>;
+        // Kurs-Gruppen: core_enrol_get_enrolled_users gibt pro Nutzer
+        // bereits ein 'groups'-Array zurück — keine separate Gruppen-API nötig.
+        // Strategie: alle Kurse holen, pro Kurs enrolled_users abrufen,
+        // den Zielnutzer finden und seine Gruppen extrahieren.
+        const allCourses = (await moodleCall("core_course_get_courses", {})) as Array<{
+          id: number;
+          fullname: string;
+          shortname: string;
+        }>;
 
-        // 2. Pro Kurs die Gruppen des Nutzers abrufen
         type GroupEntry = {
           id: number;
           name: string;
@@ -504,26 +508,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
         const courseGroups: GroupEntry[] = [];
-        for (const course of userCourses) {
+        for (const course of allCourses.filter((c) => c.id !== 1)) {
           try {
-            const groups = (await moodleCall("core_group_get_user_groups", {
+            const users = (await moodleCall("core_enrol_get_enrolled_users", {
               courseid: course.id,
-              userid,
-            })) as Array<{ id: number; name: string; description: string }>;
-            for (const g of groups) {
-              if (!courseGroups.find((x) => x.id === g.id)) {
-                courseGroups.push({
-                  id: g.id,
-                  name: g.name,
-                  description: g.description?.replace(/<[^>]*>/g, "").trim() ?? "",
-                  type: "course-group",
-                  courseid: course.id,
-                  coursename: course.fullname,
-                });
+            })) as Array<{
+              id: number;
+              groups?: Array<{ id: number; name: string; description: string }>;
+            }>;
+            const targetUser = users.find((u) => u.id === userid);
+            if (targetUser) {
+              for (const g of targetUser.groups ?? []) {
+                if (!courseGroups.find((x) => x.id === g.id)) {
+                  courseGroups.push({
+                    id: g.id,
+                    name: g.name,
+                    description: g.description?.replace(/<[^>]*>/g, "").trim() ?? "",
+                    type: "course-group",
+                    courseid: course.id,
+                    coursename: course.fullname,
+                  });
+                }
               }
             }
           } catch {
-            // Kurs ohne Gruppen – überspringen
+            // Kurs ohne Zugriff – überspringen
           }
         }
 

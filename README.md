@@ -90,8 +90,6 @@ Dem Service folgende Funktionen hinzufügen:
 | `core_message_get_conversations` | Konversationsliste abrufen |
 | `core_message_get_conversation_between_users` | Gesprächsverlauf ermitteln |
 | `core_message_get_conversation_messages` | Nachrichten einer Konversation lesen |
-| `core_enrol_get_users_courses` | Kurse eines Nutzers abrufen |
-| `core_group_get_user_groups` | Kurs-Gruppen eines Nutzers |
 | `core_cohort_search_cohorts` | Globale Kohorten durchsuchen |
 | `core_cohort_get_cohort_members` | Mitgliedschaft in Kohorten prüfen |
 
@@ -302,9 +300,13 @@ include_cohorts  (optional)  true = auch globale Kohorten abfragen (Standard: tr
 
 Rückgabe: `course_groups` (Kurs-Gruppen mit Kursname) und `cohorts` (systemweite Kohorten).
 
-> **Hinweis:** Erfordert vier zusätzliche Moodle-Funktionen im Service:
-> `core_enrol_get_users_courses`, `core_group_get_user_groups`,
-> `core_cohort_search_cohorts`, `core_cohort_get_cohort_members`
+**Kurs-Gruppen** werden über `core_enrol_get_enrolled_users` ermittelt – diese Funktion ist bereits im Service enthalten und liefert pro Nutzer ein `groups`-Feld. Keine zusätzliche Moodle-Funktion nötig.
+
+**Globale Kohorten** erfordern zwei weitere Funktionen im Service:
+- `core_cohort_search_cohorts`
+- `core_cohort_get_cohort_members`
+
+> Ohne diese Funktionen liefert das Tool trotzdem die Kurs-Gruppen. Kohorten werden dann mit einem Hinweis übersprungen.
 
 #### `moodle_get_course_info`
 Gibt Metadaten eines oder mehrerer Kurse zurück.
