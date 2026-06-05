@@ -91,6 +91,22 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
+      name: "moodle_get_user_groups",
+      description:
+        "Gibt alle Gruppen zurück, in denen ein Nutzer Mitglied ist – kursübergreifend (Kurs-Gruppen) und global (Kohorten/System-Gruppen). Kurs-Gruppen werden aus allen eingeschriebenen Kursen gesammelt; Kohorten werden direkt über die Kohorten-API abgefragt.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          userid: { type: "number", description: "Benutzer-ID" },
+          include_cohorts: {
+            type: "boolean",
+            description: "true = auch globale Kohorten abfragen (Standard: true)",
+          },
+        },
+        required: ["userid"],
+      },
+    },
+    {
       name: "moodle_get_course_info",
       description:
         "Gibt Metadaten eines oder mehrerer Kurse zurück: Titel, Kurztitel, Beschreibung, Kategorie, Start-/Enddatum, Sichtbarkeit, Format und Anzahl Abschnitte. Ideal als erster Schritt um Kursinformationen im Kontext zu haben.",
@@ -467,6 +483,129 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
+      // ------------------------------------------------------------------
+      case "moodle_get_user_groups": {
+        const userid = args.userid as number;
+        const includeCohorts = args.include_cohorts !== false; // Standard: true
+
+        // 1. Alle Kurse des Nutzers ermitteln
+        const userCourses = (await moodleCall("core_enrol_get_users_courses", {
+          userid,
+        })) as Array<{ id: number; fullname: string; shortname: string }>;
+
+        // 2. Pro Kurs die Gruppen des Nutzers abrufen
+        type GroupEntry = {
+          id: number;
+          name: string;
+          description: string;
+          type: "course-group";
+          courseid: number;
+          coursename: string;
+        };
+
+        const courseGroups: GroupEntry[] = [];
+        for (const course of userCourses) {
+          try {
+            const groups = (await moodleCall("core_group_get_user_groups", {
+              courseid: course.id,
+              userid,
+            })) as Array<{ id: number; name: string; description: string }>;
+            for (const g of groups) {
+              if (!courseGroups.find((x) => x.id === g.id)) {
+                courseGroups.push({
+                  id: g.id,
+                  name: g.name,
+                  description: g.description?.replace(/<[^>]*>/g, "").trim() ?? "",
+                  type: "course-group",
+                  courseid: course.id,
+                  coursename: course.fullname,
+                });
+              }
+            }
+          } catch {
+            // Kurs ohne Gruppen – überspringen
+          }
+        }
+
+        // 3. Globale Kohorten (System-Gruppen)
+        type CohortEntry = {
+          id: number;
+          name: string;
+          idnumber: string;
+          description: string;
+          type: "cohort";
+          component: string;
+        };
+
+        const cohorts: CohortEntry[] = [];
+        if (includeCohorts) {
+          try {
+            const result = (await moodleCall(
+              "core_cohort_search_cohorts",
+              {
+                query: "",
+                context: { contextlevel: "system", instanceid: 0 },
+                includes: "all",
+                limitfrom: 0,
+                limitnum: 1000,
+              }
+            )) as { cohorts?: Array<{
+              id: number;
+              name: string;
+              idnumber: string;
+              description: string;
+              component: string;
+            }> };
+
+            // Für jede Kohorte prüfen ob der Nutzer Mitglied ist
+            for (const c of result.cohorts ?? []) {
+              try {
+                const members = (await moodleCall("core_cohort_get_cohort_members", {
+                  cohortids: [c.id],
+                })) as Array<{ cohortid: number; userids: number[] }>;
+                const isMember = members[0]?.userids?.includes(userid);
+                if (isMember) {
+                  cohorts.push({
+                    id: c.id,
+                    name: c.name,
+                    idnumber: c.idnumber,
+                    description: c.description?.replace(/<[^>]*>/g, "").trim() ?? "",
+                    type: "cohort",
+                    component: c.component,
+                  });
+                }
+              } catch {
+                // Kohorte nicht zugänglich
+              }
+            }
+          } catch {
+            // Kohorten-API nicht verfügbar oder keine Berechtigung
+          }
+        }
+
+        const total = courseGroups.length + cohorts.length;
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  userid,
+                  total_groups: total,
+                  course_groups: courseGroups,
+                  cohorts,
+                  note: cohorts.length === 0 && includeCohorts
+                    ? "Keine Kohorten gefunden oder Funktion 'core_cohort_search_cohorts'/'core_cohort_get_cohort_members' nicht im Moodle-Service aktiviert."
+                    : undefined,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
       // ------------------------------------------------------------------
       case "moodle_get_course_info": {
         type CourseRaw = {
