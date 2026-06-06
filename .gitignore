@@ -9,6 +9,9 @@ dist/
 .env.local
 .env.*.local
 
+# Pseudonymisierung: vertrauliche Zuordnung Pseudonym <-> Klardaten (NIE committen!)
+pseudonym-map.json
+
 # Editor
 .vscode/
 .idea/

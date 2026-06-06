@@ -5,6 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { harvestIdentities, redactResult, REDACT_PII } from "./redact.js";
 
 const MOODLE_URL = (process.env.MOODLE_URL ?? "").replace(/\/$/, "");
 const MOODLE_TOKEN = process.env.MOODLE_TOKEN ?? "";
@@ -72,6 +73,9 @@ async function moodleCall(
     const err = data as { errorcode?: string; message?: string };
     throw new Error(`Moodle-Fehler [${err.errorcode ?? "?"}]: ${err.message ?? "Unbekannter Fehler"}`);
   }
+  // Personen-Identitäten aus der Rohantwort lernen (für die Pseudonymisierung),
+  // bevor die Daten weiterverarbeitet und an das Modell zurückgegeben werden.
+  if (REDACT_PII) harvestIdentities(data);
   return data;
 }
 
@@ -477,7 +481,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 // Tool-Handler
 // ---------------------------------------------------------------------------
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+const handleToolCall = async (request: {
+  params: { name: string; arguments?: Record<string, unknown> };
+}) => {
   const { name, arguments: rawArgs } = request.params;
   const args = rawArgs ?? {};
 
@@ -1491,6 +1497,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       isError: true,
     };
   }
+};
+
+// Zentraler Pseudonymisierungs-Punkt: Jedes Tool-Ergebnis durchläuft die
+// Redaktion, bevor es den Server (und damit die lokale Umgebung) verlässt.
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const result = await handleToolCall(request);
+  return redactResult(result);
 });
 
 // ---------------------------------------------------------------------------
