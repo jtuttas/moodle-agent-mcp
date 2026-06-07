@@ -5,7 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { harvestIdentities, redactResult, REDACT_PII } from "./redact.js";
+import { harvestIdentities, redactResult, resolveStudent, REDACT_PII } from "./redact.js";
 
 const MOODLE_URL = (process.env.MOODLE_URL ?? "").replace(/\/$/, "");
 const MOODLE_TOKEN = process.env.MOODLE_TOKEN ?? "";
@@ -472,6 +472,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["userid", "otheruserid"],
+      },
+    },
+    {
+      name: "moodle_resolve_student",
+      description:
+        "Loest einen vom Nutzer genannten Schueler (Name, Namensteil, E-Mail oder Login) LOKAL zu userid + Pseudonym auf. Nutzt die vertrauliche lokale Zuordnung und gibt NUR die Treffer zurueck (userid + Pseudonym, KEINE Klarnamen, KEINE Gesamtliste). Immer aufrufen, wenn der Nutzer einen Schueler beim Namen nennt, um danach dessen userid fuer Noten/Abgaben/Nachrichten zu verwenden.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Name, Namensteil, E-Mail oder Login des Schuelers" },
+          courseid: { type: "number", description: "Optional: Kurs-ID, um die Zuordnung vor dem Aufloesen sicher zu befuellen" },
+        },
+        required: ["query"],
       },
     },
   ],
@@ -1488,6 +1501,27 @@ const handleToolCall = async (request: {
       }
 
       // ------------------------------------------------------------------
+      // ------------------------------------------------------------------
+      case "moodle_resolve_student": {
+        // Optional Roster laden, damit die lokale Zuordnung sicher gefuellt ist
+        if (args.courseid !== undefined) {
+          try {
+            await moodleCall("core_enrol_get_enrolled_users", { courseid: args.courseid });
+          } catch {
+            // ignorieren - dann nur aus vorhandener Zuordnung aufloesen
+          }
+        }
+        const matches = resolveStudent(String(args.query ?? ""));
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ query: args.query ?? "", matches }, null, 2),
+            },
+          ],
+        };
+      }
+
       default:
         throw new Error(`Unbekanntes Tool: ${name}`);
     }

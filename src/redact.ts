@@ -229,3 +229,21 @@ export function redactResult<T extends ToolResult>(result: T): T {
     ),
   };
 }
+
+/** Loest einen Namen/Teilstring/E-Mail/Login LOKAL zu userid + Pseudonym auf.
+ *  Gibt bewusst KEINE Klarnamen zurueck (den Namen kennt das Modell bereits aus
+ *  der Nutzereingabe) - nur den technischen Schluessel und das Pseudonym. */
+export function resolveStudent(query: string): Array<{ userid: string; pseudonym: string }> {
+  const q = (query || "").trim().toLowerCase();
+  if (!q) return [];
+  const out: Array<{ userid: string; pseudonym: string }> = [];
+  for (const [uid, id] of Object.entries(store.users)) {
+    const fields = [id.fullname, id.firstname, id.lastname, id.email, id.username]
+      .filter(Boolean)
+      .map((x) => (x as string).toLowerCase());
+    if (fields.some((f) => f.includes(q) || q.includes(f))) {
+      out.push({ userid: uid, pseudonym: id.pseudonym });
+    }
+  }
+  return out;
+}
