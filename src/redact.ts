@@ -247,3 +247,25 @@ export function resolveStudent(query: string): Array<{ userid: string; pseudonym
   }
   return out;
 }
+
+export const REHYDRATE_FIELD = (process.env.REHYDRATE_FIELD ?? "firstname").toLowerCase();
+
+/** Rueckweg-Rehydrierung: ersetzt Pseudonyme (S-000x) in AUSGEHENDEM Text
+ *  (Nachrichten/Feedback an Moodle) durch den echten Namen. Laeuft nur lokal,
+ *  BEVOR der Aufruf an Moodle geht - das Modell hat die Namen nie gesehen.
+ *  Standard: Vorname (REHYDRATE_FIELD=fullname fuer den ganzen Namen). */
+export function rehydrateText(text: string): string {
+  if (!REDACT_PII || !text) return text;
+  let out = text;
+  const ids = Object.values(store.users)
+    .filter((id) => id.pseudonym)
+    .sort((a, b) => b.pseudonym.length - a.pseudonym.length);
+  for (const id of ids) {
+    const name =
+      (REHYDRATE_FIELD === "fullname" ? id.fullname : id.firstname) ||
+      id.fullname ||
+      id.firstname;
+    if (name) out = out.split(id.pseudonym).join(name);
+  }
+  return out;
+}

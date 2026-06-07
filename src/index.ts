@@ -5,7 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { harvestIdentities, redactResult, resolveStudent, REDACT_PII } from "./redact.js";
+import { harvestIdentities, redactResult, resolveStudent, rehydrateText, REDACT_PII } from "./redact.js";
 
 const MOODLE_URL = (process.env.MOODLE_URL ?? "").replace(/\/$/, "");
 const MOODLE_TOKEN = process.env.MOODLE_TOKEN ?? "";
@@ -826,7 +826,7 @@ const handleToolCall = async (request: {
           applytoall: 0,
           plugindata: {
             assignfeedbackcomments_editor: {
-              text: args.feedback,
+              text: rehydrateText(String(args.feedback ?? "")),
               format: 1, // HTML
             },
           },
@@ -1401,14 +1401,14 @@ const handleToolCall = async (request: {
       // ------------------------------------------------------------------
       case "moodle_send_message": {
         const textFormat = (args.format as number | undefined) ?? 1;
-        const subject = args.subject as string | undefined;
+        const subject = args.subject ? rehydrateText(String(args.subject)) : undefined;
 
         const buildText = (msg: string) =>
           subject ? `<strong>${subject}</strong><br>${msg}` : msg;
 
         const messages = (args.userids as number[]).map((uid, index) => ({
           touserid: uid,
-          text: buildText(args.message as string),
+          text: buildText(rehydrateText(String(args.message ?? ""))),
           textformat: textFormat,
           clientmsgid: `msg-${Date.now()}-${index}`,
         }));
@@ -1439,7 +1439,7 @@ const handleToolCall = async (request: {
       // ------------------------------------------------------------------
       case "moodle_send_message_to_course": {
         const textFormat = (args.format as number | undefined) ?? 1;
-        const subject = args.subject as string | undefined;
+        const subject = args.subject ? rehydrateText(String(args.subject)) : undefined;
 
         const buildText = (msg: string) =>
           subject ? `<strong>${subject}</strong><br>${msg}` : msg;
@@ -1463,7 +1463,7 @@ const handleToolCall = async (request: {
           const batch = students.slice(i, i + BATCH);
           const messages = batch.map((s, j) => ({
             touserid: s.id,
-            text: buildText(args.message as string),
+            text: buildText(rehydrateText(String(args.message ?? ""))),
             textformat: textFormat,
             clientmsgid: `bulk-${Date.now()}-${i + j}`,
           }));

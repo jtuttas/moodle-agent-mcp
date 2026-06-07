@@ -57,3 +57,18 @@ aufzulösen.
   Kurs-/Schülerlisten ab, wodurch die Zuordnung gefüllt wird.
 - Die `userid` ist ein Quasi-Identifikator (siehe oben) – im Sinne der
   Datenminimierung bewusst beibehalten, aber ohne Moodle nicht auflösbar.
+
+## Rueckweg-Rehydrierung (ausgehende Nachrichten/Feedback)
+
+Der ausgehende Weg (Modell -> Tool -> Moodle) laeuft durch den Server. Daher
+ersetzt der Server in ausgehenden Texten Pseudonyme (S-000x) wieder durch den
+echten Namen, BEVOR der Aufruf an Moodle geht. Das Modell adressiert per
+Pseudonym ("Hallo S-0002,"), der Empfaenger in Moodle erhaelt den Klarnamen
+("Hallo Joerg,") - der Name entsteht rein lokal und gelangt nie ins Modell.
+
+Betroffene Tools: `moodle_send_message` (message, subject),
+`moodle_send_message_to_course` (message, subject), `moodle_grade_assignment`
+(feedback). Funktion: `rehydrateText()` in `redact.ts`.
+
+Konfiguration: `REHYDRATE_FIELD=firstname` (Standard, natuerliche Anrede) oder
+`fullname`.
