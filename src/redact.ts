@@ -261,10 +261,11 @@ export function rehydrateText(text: string): string {
     .filter((id) => id.pseudonym)
     .sort((a, b) => b.pseudonym.length - a.pseudonym.length);
   for (const id of ids) {
+    const firstFromFull = id.fullname ? id.fullname.trim().split(/\s+/)[0] : undefined;
     const name =
-      (REHYDRATE_FIELD === "fullname" ? id.fullname : id.firstname) ||
-      id.fullname ||
-      id.firstname;
+      REHYDRATE_FIELD === "fullname"
+        ? id.fullname || id.firstname || firstFromFull
+        : id.firstname || firstFromFull || id.fullname;
     if (name) out = out.split(id.pseudonym).join(name);
   }
   return out;
