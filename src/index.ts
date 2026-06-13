@@ -6,6 +6,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { harvestIdentities, redactResult, resolveStudent, rehydrateText, REDACT_PII } from "./redact.js";
+import { rehydrateFile, RehydrateError } from "./rehydrate-file.js";
 
 const MOODLE_URL = (process.env.MOODLE_URL ?? "").replace(/\/$/, "");
 const MOODLE_TOKEN = process.env.MOODLE_TOKEN ?? "";
@@ -485,6 +486,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           courseid: { type: "number", description: "Optional: Kurs-ID, um die Zuordnung vor dem Aufloesen sicher zu befuellen" },
         },
         required: ["query"],
+      },
+    },
+    {
+      name: "moodle_rehydrate_report",
+      description:
+        "Rehydriert eine lokale Berichtsdatei: Pseudonyme (S-0001 …) werden durch echte Namen ersetzt, BEVOR die Datei gespeichert wird. Die Klarnamen verlassen dabei niemals den Server – der Rückgabewert enthält nur Metadaten (Anzahl ersetzter Pseudonyme, Pseudonym-Kürzel). Unterstützt .md, .txt und .docx. Dateipfade müssen innerhalb von REHYDRATE_BASE_DIR liegen.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          infile: {
+            type: "string",
+            description: "Pfad zur Eingabedatei (relativ zu REHYDRATE_BASE_DIR oder absolut darin). Erlaubt: .docx, .md, .txt",
+          },
+          outfile: {
+            type: "string",
+            description: "Pfad zur Ausgabedatei (optional; Standard: in-place, überschreibt infile)",
+          },
+          field: {
+            type: "string",
+            enum: ["fullname", "email", "username"],
+            description: "Welches Klardaten-Feld als Ersetzung einsetzen (Standard: fullname)",
+          },
+        },
+        required: ["infile"],
       },
     },
   ],
@@ -1520,6 +1545,31 @@ const handleToolCall = async (request: {
             },
           ],
         };
+      }
+
+      // ------------------------------------------------------------------
+      case "moodle_rehydrate_report": {
+        const infile = args.infile as string;
+        const outfile = args.outfile as string | undefined;
+        const rawField = (args.field as string | undefined) ?? "fullname";
+        const field = (["fullname", "email", "username"].includes(rawField)
+          ? rawField
+          : "fullname") as "fullname" | "email" | "username";
+
+        try {
+          const result = rehydrateFile(infile, outfile, field);
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (e) {
+          if (e instanceof RehydrateError) {
+            return {
+              content: [{ type: "text", text: `Fehler bei Rehydrierung: ${e.message}` }],
+              isError: true,
+            };
+          }
+          throw e;
+        }
       }
 
       default:

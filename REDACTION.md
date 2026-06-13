@@ -72,3 +72,40 @@ Betroffene Tools: `moodle_send_message` (message, subject),
 
 Konfiguration: `REHYDRATE_FIELD=firstname` (Standard, natuerliche Anrede) oder
 `fullname`.
+
+## Tool moodle_rehydrate_report
+
+Rehydriert eine **lokale Berichtsdatei** (Pseudonym → Klarname), ohne dass
+Klarnamen jemals an das Modell übertragen werden. Das Tool:
+
+1. Validiert den Dateipfad gegen `REHYDRATE_BASE_DIR` (Pfad-Traversal sicher abgewiesen).
+2. Liest `.md`/`.txt` direkt in TypeScript (nutzt dieselbe Zuordnungstabelle wie die
+   laufende Redaktion).
+3. Verarbeitet `.docx` über `rehydrate.py` als Python-Subprozess (python-docx;
+   Runs, Tabellen, Kopf-/Fußzeilen).
+4. Gibt **ausschließlich Metadaten** zurück – kein Klarname im Rückgabewert:
+   ```json
+   { "ok": true, "datei": "bericht_klar.md",
+     "pseudonyme_ersetzt": 3, "schueler": ["S-0001","S-0002","S-0003"],
+     "field": "fullname" }
+   ```
+
+### Konfiguration
+
+| Variable             | Bedeutung                                                          |
+| -------------------- | ------------------------------------------------------------------ |
+| `REHYDRATE_BASE_DIR` | Basisordner für Berichtsdateien (Standard: `../MoodleTutor/Berichte`) |
+| `PYTHON_BIN`         | Python-Executable für .docx (Standard: `python3`)                 |
+| `PSEUDONYM_MAP`      | Pfad zur Zuordnungsdatei (wie bei der übrigen Redaktion)           |
+
+### DOCX-Voraussetzung
+
+```bash
+pip install python-docx
+```
+
+Das Skript `rehydrate.py` liegt im Projektstamm und kann auch direkt aufgerufen werden:
+
+```bash
+python rehydrate.py --infile bericht.docx --outfile bericht_klar.docx --field fullname
+```

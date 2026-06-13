@@ -250,6 +250,40 @@ export function resolveStudent(query: string): Array<{ userid: string; pseudonym
 
 export const REHYDRATE_FIELD = (process.env.REHYDRATE_FIELD ?? "firstname").toLowerCase();
 
+function resolveNameForField(
+  id: Identity,
+  field: "fullname" | "email" | "username"
+): string | undefined {
+  if (field === "email") return id.email;
+  if (field === "username") return id.username;
+  const firstFromFull = id.fullname ? id.fullname.trim().split(/\s+/)[0] : undefined;
+  return id.fullname || id.firstname || firstFromFull;
+}
+
+/**
+ * Rehydriert Text mit explizit gewähltem Feld – für moodle_rehydrate_report.
+ * Gibt nur Pseudonyme zurück (keine Klarnamen).
+ */
+export function rehydrateTextForField(
+  text: string,
+  field: "fullname" | "email" | "username"
+): { text: string; replaced: string[] } {
+  if (!text) return { text, replaced: [] };
+  let out = text;
+  const replaced: string[] = [];
+  const ids = Object.values(store.users)
+    .filter((id) => id.pseudonym)
+    .sort((a, b) => b.pseudonym.length - a.pseudonym.length);
+  for (const id of ids) {
+    const name = resolveNameForField(id, field);
+    if (name && out.includes(id.pseudonym)) {
+      out = out.split(id.pseudonym).join(name);
+      replaced.push(id.pseudonym);
+    }
+  }
+  return { text: out, replaced };
+}
+
 /** Rueckweg-Rehydrierung: ersetzt Pseudonyme (S-000x) in AUSGEHENDEM Text
  *  (Nachrichten/Feedback an Moodle) durch den echten Namen. Laeuft nur lokal,
  *  BEVOR der Aufruf an Moodle geht - das Modell hat die Namen nie gesehen.
