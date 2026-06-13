@@ -15,6 +15,7 @@ Ein [Model Context Protocol (MCP)](https://modelcontextprotocol.io) Server, der 
   - [Claude Desktop](#claude-desktop)
 - [Verfügbare Tools](#verfügbare-tools)
 - [Use Cases](#use-cases)
+- [Datenschutz & Pseudonymisierung](#datenschutz--pseudonymisierung)
 - [Technische Details](#technische-details)
 
 ---
@@ -27,6 +28,7 @@ Ein [Model Context Protocol (MCP)](https://modelcontextprotocol.io) Server, der 
 - **Quiz-Ergebnisse auswerten** – Versuche und beste Noten pro Schüler oder Kurs
 - **Noten-Übersicht** – Komplettes Bewertungsbuch abrufbar
 - **Mitteilungen senden** – Direkte Moodle-Nachrichten an einzelne Schüler oder ganze Kurse
+- **Datenschutz (DSGVO)** – Serverseitige Pseudonymisierung: Klarnamen verlassen den Server nicht; Berichte lokal rehydrieren
 
 ---
 
@@ -113,6 +115,10 @@ Beide Clients benötigen dieselben zwei Variablen:
 |---|---|---|
 | `MOODLE_URL` | Basis-URL der Moodle-Instanz, **ohne** abschließenden `/` | `https://moodle.meineschule.de` |
 | `MOODLE_TOKEN` | Web Services Token aus [Schritt 4](#4-token-erstellen) | `abc123def456...` |
+| `REDACT_PII` | `1` (Standard) = Pseudonymisierung aktiv; `0` = aus (nur Debugging) | `1` |
+| `PSEUDONYM_MAP` | Pfad zur vertraulichen Zuordnungsdatei (Standard: `pseudonym-map.json` im Projektstamm) | `/sicherer/pfad/map.json` |
+| `REHYDRATE_BASE_DIR` | Basisordner für `moodle_rehydrate_report` (Standard: `../MoodleTutor/Berichte`) | `/home/lehrer/Berichte` |
+| `PYTHON_BIN` | Python-Executable für .docx-Rehydrierung (Standard: `python3`) | `python3` |
 
 ---
 
@@ -495,6 +501,47 @@ format   (optional)
 
 ---
 
+### Datenschutz
+
+#### `moodle_resolve_student`
+Löst einen Schülernamen (oder Namensteil / E-Mail / Login) **lokal** zu `userid` + Pseudonym auf.  
+Gibt **keine Klarnamen** zurück – nur den technischen Schlüssel.
+
+```
+query    (required)  Name, Namensteil, E-Mail oder Login
+courseid (optional)  Kurs-ID, um die Zuordnung vor der Auflösung zu befüllen
+```
+
+#### `moodle_rehydrate_report`
+Ersetzt Pseudonyme (`S-0001`, …) in einer lokalen Berichtsdatei durch echte Namen.  
+Die Klarnamen verlassen dabei **niemals den Server** – der Rückgabewert enthält nur Metadaten.
+
+```
+infile   (required)  Pfad zur Eingabedatei (relativ zu REHYDRATE_BASE_DIR oder absolut darin)
+                     Unterstützte Formate: .md, .txt, .docx
+outfile  (optional)  Ausgabedatei (Standard: in-place, überschreibt infile)
+field    (optional)  Welches Klardaten-Feld einsetzen: fullname (Standard) | email | username
+```
+
+**Rückgabe** (kein Klarname enthalten):
+```json
+{
+  "ok": true,
+  "datei": "Klassenbericht_klar.md",
+  "pseudonyme_ersetzt": 3,
+  "schueler": ["S-0001", "S-0002", "S-0003"],
+  "field": "fullname"
+}
+```
+
+**Sicherheit:**
+- Pfad-Traversal (`..`) und absolute Pfade außerhalb von `REHYDRATE_BASE_DIR` werden abgewiesen.
+- `.docx`-Verarbeitung über Python (`python-docx`): Runs, Tabellen, Kopf-/Fußzeilen.  
+  Voraussetzung: `pip install python-docx`
+- Standalone-CLI: `python rehydrate.py --infile bericht.docx --field fullname`
+
+---
+
 ## Use Cases
 
 ### 1. Automatisches Code-Review und Feedback
@@ -645,6 +692,66 @@ moodle_get_enrolled_students (courseid: 4)
     [KI generiert personalisierte Tipps]
     moodle_send_message (userids: [X], message: "Hallo ..., du hast ...")
 ```
+
+---
+
+### 9. Pseudonymisierten Bericht rehydrieren
+
+**Szenario:** Der Lehrer lässt die KI einen Lernstandsbericht als Markdown-Datei erstellen. Da `REDACT_PII=1` aktiv ist, enthält der Bericht nur Pseudonyme (`S-0001`, …). Vor dem Ausdrucken oder Versenden sollen die echten Namen eingesetzt werden.
+
+**Prompt:**
+> „Erstelle einen Lernstandsbericht für Kurs 7 als Markdown-Datei `Berichte/lernstand_kurs7.md` mit Aktivitätsabschlüssen und Noten. Rehydriere danach die Datei mit den echten Namen."
+
+**Tool-Kette:**
+```
+moodle_get_activity_completion (courseid: 7)
+moodle_get_course_grades (courseid: 7)
+  → [KI erstellt lernstand_kurs7.md in REHYDRATE_BASE_DIR mit Pseudonymen]
+moodle_rehydrate_report (
+  infile: "lernstand_kurs7.md",
+  outfile: "lernstand_kurs7_klar.md",
+  field: "fullname"
+)
+  → { ok: true, pseudonyme_ersetzt: 24, schueler: ["S-0001", …], field: "fullname" }
+```
+
+> **Hinweis:** Die Datei `lernstand_kurs7_klar.md` enthält jetzt echte Namen – sie liegt ausschließlich lokal und wurde **nicht** an das Modell übertragen.
+
+---
+
+## Datenschutz & Pseudonymisierung
+
+Der MCP-Server ist die letzte Station unter Kontrolle der Schule, bevor Tool-Ergebnisse an das (Cloud-)Modell gehen. Hier greift die serverseitige Pseudonymisierung:
+
+```
+Moodle (lokal) ──▶ MCP-Server (lokal) ──▶ [Redaktion] ──▶ Modell (Cloud)
+                                               │
+                              pseudonym-map.json (vertraulich, bleibt lokal)
+```
+
+### Hinweg (Moodle → Modell)
+
+Jede Moodle-Antwort wird vor der Ausgabe bereinigt: `fullname`, `firstname`, `lastname`, `email` und `username` werden durch stabile Pseudonyme (`S-0001`, `S-0002`, …) ersetzt – auch in Freitext (Feedback, Nachrichten, Abgabe-Inhalte).  
+Die numerische `userid` bleibt erhalten (ohne Moodle-Zugriff nicht auflösbar).
+
+### Rückweg (Modell → Moodle)
+
+Ausgehende Texte (Nachrichten, Feedback) werden **vor** dem Moodle-Aufruf rehydriert: `S-0002` → echter Vorname. Der Empfänger sieht seinen echten Namen, das Modell hat ihn nie gesehen.
+
+### Berichtsdateien
+
+Lokale Dateien (`.md`, `.txt`, `.docx`) können mit `moodle_rehydrate_report` rehydriert werden. Klarnamen erscheinen nur in der Ausgabedatei – nicht im Modell-Kontext und nicht im Tool-Rückgabewert.
+
+### Konfiguration
+
+| Variable | Standard | Bedeutung |
+|---|---|---|
+| `REDACT_PII` | `1` | `0` = Redaktion deaktiviert (nur Debugging) |
+| `PSEUDONYM_MAP` | `pseudonym-map.json` | Pfad zur vertraulichen Zuordnungsdatei |
+| `REHYDRATE_BASE_DIR` | `../MoodleTutor/Berichte` | Erlaubter Ordner für Berichtsdateien |
+| `PYTHON_BIN` | `python3` | Python-Executable für .docx-Verarbeitung |
+
+> Die Datei `pseudonym-map.json` ist durch `.gitignore` vom Commit ausgeschlossen und darf niemals an Modell, Client oder Cloud weitergegeben werden.
 
 ---
 
