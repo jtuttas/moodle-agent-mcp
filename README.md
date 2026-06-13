@@ -727,6 +727,8 @@ Moodle (lokal) ──▶ MCP-Server (lokal) ──▶ [Redaktion] ──▶ Mode
                               pseudonym-map.json (vertraulich, bleibt lokal)
 ```
 
+![Pseudonymisierung – Datenfluss](docs/pseudonymisierung.png)
+
 ### Hinweg (Moodle → Modell)
 
 Jede Moodle-Antwort wird vor der Ausgabe bereinigt: `fullname`, `firstname`, `lastname`, `email` und `username` werden durch stabile Pseudonyme (`S-0001`, `S-0002`, …) ersetzt – auch in Freitext (Feedback, Nachrichten, Abgabe-Inhalte).  
