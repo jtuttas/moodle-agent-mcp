@@ -1,199 +1,115 @@
-<svg viewBox="0 0 820 580" width="820" height="580" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, Segoe UI, Arial, sans-serif">
+<svg viewBox="0 0 800 430" width="800" height="430" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,Segoe UI,Arial,sans-serif" role="img">
+  <title>Pseudonymisierung Datenfluss – Swimlane-Diagramm</title>
+  <desc>Drei horizontale Spuren zeigen Hinweg, Rückweg und Datei-Rehydrierung. Eine vertikale Trennlinie teilt lokale Zone (links) von Cloud (rechts).</desc>
   <defs>
-    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
-      <path d="M0,0 L0,7 L8,3.5 Z" fill="#4f81e8"/>
-    </marker>
-    <marker id="arrowOrange" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
-      <path d="M0,0 L0,7 L8,3.5 Z" fill="#f97316"/>
-    </marker>
-    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
-      <path d="M0,0 L0,7 L8,3.5 Z" fill="#43a047"/>
-    </marker>
-    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
-      <path d="M0,0 L0,7 L8,3.5 Z" fill="#7c3aed"/>
-    </marker>
-    <marker id="arrowGray" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
-      <path d="M0,0 L0,7 L8,3.5 Z" fill="#9ca3af"/>
-    </marker>
-    <filter id="shadow" x="-5%" y="-5%" width="110%" height="120%">
-      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#00000022"/>
-    </filter>
+    <marker id="arR" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L0,7 L7,3.5Z" fill="#4f81e8"/></marker>
+    <marker id="arO" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L0,7 L7,3.5Z" fill="#f97316"/></marker>
+    <marker id="arG" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L0,7 L7,3.5Z" fill="#16a34a"/></marker>
+    <marker id="arP" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L0,7 L7,3.5Z" fill="#7c3aed"/></marker>
+    <marker id="arLeft" markerWidth="7" markerHeight="7" refX="1" refY="3.5" orient="auto"><path d="M7,0 L7,7 L0,3.5Z" fill="#db2777"/></marker>
+    <marker id="arLeftB" markerWidth="7" markerHeight="7" refX="1" refY="3.5" orient="auto"><path d="M7,0 L7,7 L0,3.5Z" fill="#4f81e8"/></marker>
   </defs>
 
-  <!-- Hintergrund -->
-  <rect width="820" height="580" fill="#f0f4f8" rx="12"/>
+  <!-- Zone backgrounds -->
+  <rect x="0" y="0" width="800" height="430" fill="#f8fafc" rx="10"/>
+  <rect x="512" y="44" width="288" height="386" fill="#eff6ff"/>
 
-  <!-- Titel -->
-  <text x="410" y="34" text-anchor="middle" font-size="15" font-weight="700" fill="#1e293b">Pseudonymisierung im MCP-Server – Datenfluss</text>
+  <!-- Row dividers -->
+  <line x1="0" y1="110" x2="800" y2="110" stroke="#e2e8f0" stroke-width="1"/>
+  <line x1="0" y1="230" x2="800" y2="230" stroke="#e2e8f0" stroke-width="1"/>
+  <line x1="0" y1="340" x2="800" y2="340" stroke="#e2e8f0" stroke-width="1"/>
 
-  <!-- ═══════════════════════════════════════════════════════
-       LOKALE ZONE
-       ═══════════════════════════════════════════════════════ -->
-  <rect x="14" y="48" width="516" height="500" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6,3"/>
-  <text x="26" y="66" font-size="10.5" fill="#64748b" font-weight="600">LOKAL (Schule / Lehrkraft)</text>
+  <!-- Zone headers -->
+  <rect x="0" y="0" width="512" height="44" fill="#f1f5f9" rx="10"/>
+  <rect x="512" y="0" width="288" height="44" fill="#dbeafe" rx="10"/>
+  <text x="256" y="26" text-anchor="middle" font-size="12" font-weight="700" fill="#334155">LOKAL · Schule / Lehrkraft</text>
+  <text x="256" y="39" text-anchor="middle" font-size="9.5" fill="#64748b">Moodle · MCP-Server · Dateien</text>
+  <text x="656" y="26" text-anchor="middle" font-size="12" font-weight="700" fill="#1d4ed8">CLOUD · KI-Modell</text>
+  <text x="656" y="39" text-anchor="middle" font-size="9.5" fill="#3b82f6">Claude · GPT · …</text>
 
-  <!-- ═══════════════════════════════════════════════════════
-       CLOUD ZONE
-       ═══════════════════════════════════════════════════════ -->
-  <rect x="548" y="48" width="258" height="244" rx="10" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="6,3"/>
-  <text x="560" y="66" font-size="10.5" fill="#3b82f6" font-weight="600">CLOUD (KI-Modell)</text>
+  <!-- Divider line -->
+  <line x1="512" y1="44" x2="512" y2="410" stroke="#93c5fd" stroke-width="2" stroke-dasharray="7,4"/>
+  <text x="512" y="424" text-anchor="middle" font-size="8.5" fill="#93c5fd">▲ Klarnamen passieren diese Linie nie ▲</text>
 
-  <!-- ═══════════════════════════════════════════════════════
-       MOODLE BOX
-       ═══════════════════════════════════════════════════════ -->
-  <rect x="30" y="80" width="148" height="70" rx="8" fill="#fff7ed" stroke="#f97316" stroke-width="2" filter="url(#shadow)"/>
-  <text x="104" y="102" text-anchor="middle" font-size="13" font-weight="700" fill="#c2410c">Moodle</text>
-  <text x="104" y="118" text-anchor="middle" font-size="10" fill="#9a3412">(lokale Instanz)</text>
-  <text x="104" y="134" text-anchor="middle" font-size="9.5" fill="#7c2d12">Klarnamen · E-Mails · IDs</text>
+  <!-- ══════════════════════════════════
+       ROW 1 — HINWEG
+       ══════════════════════════════════ -->
+  <rect x="2" y="110" width="94" height="120" fill="#fff7ed" rx="6"/>
+  <text x="49" y="168" text-anchor="middle" font-size="10" font-weight="700" fill="#c2410c" transform="rotate(-90,49,168)">① Hinweg</text>
 
-  <!-- ═══════════════════════════════════════════════════════
-       MCP-SERVER BOX
-       ═══════════════════════════════════════════════════════ -->
-  <rect x="182" y="74" width="328" height="464" rx="10" fill="#f0f9ff" stroke="#4f81e8" stroke-width="2" filter="url(#shadow)"/>
-  <text x="346" y="96" text-anchor="middle" font-size="13" font-weight="700" fill="#1d4ed8">MCP-Server</text>
-  <text x="346" y="111" text-anchor="middle" font-size="10" fill="#3b82f6">(lokaler Prozess)</text>
+  <rect x="106" y="126" width="94" height="52" rx="7" fill="#fff7ed" stroke="#f97316" stroke-width="1.8"/>
+  <text x="153" y="148" text-anchor="middle" font-size="11" font-weight="700" fill="#c2410c">Moodle</text>
+  <text x="153" y="163" text-anchor="middle" font-size="9" fill="#9a3412">Klardaten</text>
+  <line x1="200" y1="152" x2="224" y2="152" stroke="#f97316" stroke-width="2" marker-end="url(#arO)"/>
 
-  <!-- harvestIdentities -->
-  <rect x="198" y="122" width="294" height="54" rx="7" fill="#fff3e0" stroke="#f97316" stroke-width="1.5"/>
-  <text x="345" y="143" text-anchor="middle" font-size="11.5" font-weight="600" fill="#c2410c">harvestIdentities(data)</text>
-  <text x="345" y="159" text-anchor="middle" font-size="9.5" fill="#9a3412">lernt Personen-Daten → vergibt stabile Pseudonyme (S-0001 …)</text>
+  <rect x="226" y="117" width="174" height="70" rx="7" fill="#e0f2fe" stroke="#4f81e8" stroke-width="1.8"/>
+  <text x="313" y="138" text-anchor="middle" font-size="10.5" font-weight="600" fill="#1d4ed8">① harvestIdentities</text>
+  <line x1="250" y1="147" x2="376" y2="147" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="313" y="164" text-anchor="middle" font-size="10.5" font-weight="600" fill="#1d4ed8">② redactResult</text>
+  <rect x="248" y="191" width="130" height="22" rx="4" fill="#fef9c3" stroke="#eab308" stroke-width="1.2"/>
+  <text x="313" y="206" text-anchor="middle" font-size="9" fill="#854d0e">📄 pseudonym-map.json</text>
+  <line x1="313" y1="187" x2="313" y2="191" stroke="#eab308" stroke-width="1.2"/>
 
-  <!-- redactResult -->
-  <rect x="198" y="190" width="294" height="54" rx="7" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
-  <text x="345" y="211" text-anchor="middle" font-size="11.5" font-weight="600" fill="#15803d">redactResult(result)</text>
-  <text x="345" y="227" text-anchor="middle" font-size="9.5" fill="#166534">ersetzt alle Klarnamen durch Pseudonyme in der Antwort</text>
+  <line x1="400" y1="152" x2="506" y2="152" stroke="#4f81e8" stroke-width="2" marker-end="url(#arR)"/>
+  <text x="452" y="146" text-anchor="middle" font-size="8.5" fill="#4f81e8">pseudonymisiert</text>
 
-  <!-- rehydrateText -->
-  <rect x="198" y="290" width="294" height="54" rx="7" fill="#fdf2f8" stroke="#ec4899" stroke-width="1.5"/>
-  <text x="345" y="311" text-anchor="middle" font-size="11.5" font-weight="600" fill="#9d174d">rehydrateText(text)</text>
-  <text x="345" y="327" text-anchor="middle" font-size="9.5" fill="#831843">ersetzt Pseudonyme in ausgehenden Texten durch Klarnamen</text>
+  <rect x="520" y="117" width="266" height="70" rx="7" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="653" y="142" text-anchor="middle" font-size="11" font-weight="600" fill="#1e40af">KI sieht nur:</text>
+  <text x="653" y="159" text-anchor="middle" font-size="10" fill="#1d4ed8">S-0001, S-0002 … (keine Klarnamen)</text>
+  <text x="653" y="174" text-anchor="middle" font-size="9" fill="#3b82f6">userids (lokal nicht auflösbar)</text>
 
-  <!-- Trennlinie Hinweg / Rückweg -->
-  <line x1="198" y1="262" x2="492" y2="262" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="345" y="275" text-anchor="middle" font-size="9" fill="#94a3b8">── Rückweg (Modell → Tool → Moodle) ──</text>
+  <!-- ══════════════════════════════════
+       ROW 2 — RÜCKWEG
+       ══════════════════════════════════ -->
+  <rect x="2" y="230" width="94" height="110" fill="#fdf2f8" rx="6"/>
+  <text x="49" y="288" text-anchor="middle" font-size="10" font-weight="700" fill="#9d174d" transform="rotate(-90,49,288)">② Rückweg</text>
 
-  <!-- moodle_rehydrate_report -->
-  <rect x="198" y="390" width="294" height="70" rx="7" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
-  <text x="345" y="411" text-anchor="middle" font-size="11.5" font-weight="600" fill="#6d28d9">moodle_rehydrate_report</text>
-  <text x="345" y="428" text-anchor="middle" font-size="9.5" fill="#5b21b6">rehydrateFile(.md/.txt/.docx)</text>
-  <text x="345" y="444" text-anchor="middle" font-size="9" fill="#7c3aed">gibt nur Metadaten zurück (kein Klarname)</text>
+  <rect x="520" y="244" width="266" height="56" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.5"/>
+  <text x="653" y="266" text-anchor="middle" font-size="10.5" font-weight="600" fill="#9d174d">Anweisung mit Pseudonym</text>
+  <text x="653" y="283" text-anchor="middle" font-size="9.5" fill="#be185d">„Hallo S-0002, deine Note ist …"</text>
 
-  <!-- ═══════════════════════════════════════════════════════
-       PSEUDONYM-MAP
-       ═══════════════════════════════════════════════════════ -->
-  <rect x="30" y="290" width="140" height="80" rx="8" fill="#fefce8" stroke="#eab308" stroke-width="2" filter="url(#shadow)"/>
-  <text x="100" y="312" text-anchor="middle" font-size="11" font-weight="700" fill="#854d0e">pseudonym-map</text>
-  <text x="100" y="327" text-anchor="middle" font-size="9.5" fill="#92400e">.json (lokal, privat)</text>
-  <rect x="40" y="336" width="120" height="26" rx="4" fill="#fef9c3"/>
-  <text x="100" y="350" text-anchor="middle" font-size="9" fill="#713f12" font-style="italic">S-0001 ↔ Erika M.</text>
-  <text x="100" y="362" text-anchor="middle" font-size="9" fill="#713f12" font-style="italic">S-0002 ↔ Max B.</text>
+  <line x1="506" y1="272" x2="410" y2="272" stroke="#db2777" stroke-width="2" marker-end="url(#arLeft)"/>
+  <text x="456" y="266" text-anchor="middle" font-size="8.5" fill="#db2777">mit Pseudonym</text>
 
-  <!-- Bericht-Datei -->
-  <rect x="30" y="402" width="140" height="70" rx="8" fill="#faf5ff" stroke="#7c3aed" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="100" y="424" text-anchor="middle" font-size="11" font-weight="700" fill="#5b21b6">Bericht.docx</text>
-  <text x="100" y="440" text-anchor="middle" font-size="9.5" fill="#7c3aed">enthält: S-0001, S-0002</text>
-  <text x="100" y="456" text-anchor="middle" font-size="9" fill="#8b5cf6">(pseudonymisiert)</text>
+  <rect x="226" y="244" width="174" height="46" rx="7" fill="#fdf2f8" stroke="#db2777" stroke-width="1.8"/>
+  <text x="313" y="264" text-anchor="middle" font-size="10.5" font-weight="600" fill="#9d174d">③ rehydrateText</text>
+  <text x="313" y="281" text-anchor="middle" font-size="9" fill="#be185d">S-0002 → Max B.</text>
+  <rect x="248" y="294" width="130" height="22" rx="4" fill="#fef9c3" stroke="#eab308" stroke-width="1.2"/>
+  <text x="313" y="309" text-anchor="middle" font-size="9" fill="#854d0e">📄 pseudonym-map.json</text>
+  <line x1="313" y1="290" x2="313" y2="294" stroke="#eab308" stroke-width="1.2"/>
 
-  <!-- Bericht-Datei Output -->
-  <rect x="30" y="490" width="140" height="50" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4,2"/>
-  <text x="100" y="512" text-anchor="middle" font-size="11" font-weight="600" fill="#5b21b6">Bericht_klar.docx</text>
-  <text x="100" y="528" text-anchor="middle" font-size="9" fill="#7c3aed">(Klarname, bleibt lokal)</text>
+  <line x1="226" y1="267" x2="202" y2="267" stroke="#db2777" stroke-width="2" marker-end="url(#arLeft)"/>
 
-  <!-- ═══════════════════════════════════════════════════════
-       KI-MODELL BOX
-       ═══════════════════════════════════════════════════════ -->
-  <rect x="564" y="80" width="226" height="196" rx="8" fill="#ffffff" stroke="#3b82f6" stroke-width="2" filter="url(#shadow)"/>
-  <text x="677" y="103" text-anchor="middle" font-size="13" font-weight="700" fill="#1d4ed8">KI-Modell</text>
-  <text x="677" y="119" text-anchor="middle" font-size="10" fill="#3b82f6">(Cloud / Claude / GPT)</text>
+  <rect x="106" y="244" width="94" height="52" rx="7" fill="#fff7ed" stroke="#f97316" stroke-width="1.8"/>
+  <text x="153" y="265" text-anchor="middle" font-size="11" font-weight="700" fill="#c2410c">Moodle</text>
+  <text x="153" y="280" text-anchor="middle" font-size="9" fill="#9a3412">Klarname</text>
 
-  <!-- Sieht nur: -->
-  <text x="677" y="141" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">Sieht NUR:</text>
-  <rect x="575" y="148" width="204" height="18" rx="3" fill="#dcfce7"/>
-  <text x="677" y="161" text-anchor="middle" font-size="9.5" fill="#166534">✓ Pseudonyme (S-0001, S-0002 …)</text>
-  <rect x="575" y="170" width="204" height="18" rx="3" fill="#dcfce7"/>
-  <text x="677" y="183" text-anchor="middle" font-size="9.5" fill="#166534">✓ userids (nur lokal auflösbar)</text>
-  <rect x="575" y="192" width="204" height="18" rx="3" fill="#fee2e2"/>
-  <text x="677" y="205" text-anchor="middle" font-size="9.5" fill="#dc2626">✗ Klarnamen / E-Mails / Logins</text>
-  <rect x="575" y="214" width="204" height="18" rx="3" fill="#fee2e2"/>
-  <text x="677" y="227" text-anchor="middle" font-size="9.5" fill="#dc2626">✗ pseudonym-map.json</text>
-  <rect x="575" y="236" width="204" height="18" rx="3" fill="#fee2e2"/>
-  <text x="677" y="249" text-anchor="middle" font-size="9.5" fill="#dc2626">✗ rehydrierte Dateien</text>
+  <!-- ══════════════════════════════════
+       ROW 3 — DATEI-REHYDRIERUNG
+       ══════════════════════════════════ -->
+  <rect x="2" y="340" width="94" height="86" fill="#f5f3ff" rx="6"/>
+  <text x="49" y="387" text-anchor="middle" font-size="10" font-weight="700" fill="#6d28d9" transform="rotate(-90,49,387)">③ Datei</text>
 
-  <!-- ═══════════════════════════════════════════════════════
-       PFEILE
-       ═══════════════════════════════════════════════════════ -->
+  <rect x="106" y="353" width="100" height="46" rx="7" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.8"/>
+  <text x="156" y="372" text-anchor="middle" font-size="10.5" font-weight="600" fill="#5b21b6">Bericht.docx</text>
+  <text x="156" y="387" text-anchor="middle" font-size="9" fill="#7c3aed">S-0001, S-0002</text>
+  <line x1="206" y1="376" x2="224" y2="376" stroke="#7c3aed" stroke-width="2" marker-end="url(#arP)"/>
 
-  <!-- Moodle → harvestIdentities -->
-  <path d="M178,115 L196,145" stroke="#f97316" stroke-width="2" fill="none" marker-end="url(#arrowOrange)"/>
-  <text x="168" y="134" text-anchor="end" font-size="8.5" fill="#9a3412">Rohdaten</text>
+  <rect x="226" y="348" width="150" height="46" rx="7" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.8"/>
+  <text x="301" y="368" text-anchor="middle" font-size="10.5" font-weight="600" fill="#5b21b6">④ rehydrateFile</text>
+  <text x="301" y="383" text-anchor="middle" font-size="9" fill="#7c3aed">.md / .txt / .docx</text>
+  <rect x="248" y="398" width="130" height="22" rx="4" fill="#fef9c3" stroke="#eab308" stroke-width="1.2"/>
+  <text x="313" y="413" text-anchor="middle" font-size="9" fill="#854d0e">📄 pseudonym-map.json</text>
+  <line x1="313" y1="394" x2="313" y2="398" stroke="#eab308" stroke-width="1.2"/>
 
-  <!-- harvestIdentities → redactResult (vertikal) -->
-  <line x1="345" y1="176" x2="345" y2="188" stroke="#4f81e8" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+  <line x1="376" y1="371" x2="394" y2="371" stroke="#16a34a" stroke-width="2" marker-end="url(#arG)"/>
+  <rect x="396" y="353" width="108" height="46" rx="7" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.8"/>
+  <text x="450" y="372" text-anchor="middle" font-size="10.5" font-weight="600" fill="#15803d">Bericht_klar</text>
+  <text x="450" y="387" text-anchor="middle" font-size="9" fill="#16a34a">bleibt lokal ✓</text>
 
-  <!-- redactResult → MCP Ausgang (Hinweg Pfeil) -->
-  <path d="M492,217 L554,180" stroke="#22c55e" stroke-width="2" fill="none" marker-end="url(#arrowGreen)"/>
-  <text x="526" y="198" text-anchor="middle" font-size="8.5" fill="#15803d" transform="rotate(-26,526,198)">pseudonymisiert</text>
+  <line x1="504" y1="371" x2="518" y2="371" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arR)"/>
 
-  <!-- Rückweg: KI → rehydrateText -->
-  <path d="M554,230 L492,310" stroke="#9ca3af" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#arrowGray)"/>
-  <text x="516" y="262" text-anchor="middle" font-size="8.5" fill="#6b7280" transform="rotate(56,516,262)">Anweisung mit</text>
-  <text x="534" y="278" text-anchor="middle" font-size="8.5" fill="#6b7280">Pseudonym</text>
-
-  <!-- rehydrateText → Moodle (Rückweg) -->
-  <path d="M198,317 L178,130" stroke="#ec4899" stroke-width="2" fill="none" stroke-dasharray="6,3" marker-end="url(#arrowGray)"/>
-  <text x="175" y="230" text-anchor="end" font-size="8.5" fill="#9d174d">Klarname</text>
-
-  <!-- pseudonym-map ↔ harvestIdentities/redact -->
-  <line x1="170" y1="315" x2="197" y2="190" stroke="#eab308" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrowBlue)"/>
-  <text x="168" y="260" text-anchor="end" font-size="8.5" fill="#92400e">lesen/</text>
-  <text x="168" y="272" text-anchor="end" font-size="8.5" fill="#92400e">schreiben</text>
-
-  <!-- pseudonym-map → rehydrateText -->
-  <line x1="170" y1="340" x2="197" y2="317" stroke="#eab308" stroke-width="1.5" stroke-dasharray="4,2"/>
-
-  <!-- pseudonym-map → rehydrateFile -->
-  <line x1="170" y1="355" x2="197" y2="415" stroke="#eab308" stroke-width="1.5" stroke-dasharray="4,2"/>
-
-  <!-- Bericht → rehydrateReport -->
-  <line x1="170" y1="437" x2="197" y2="425" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrowPurple)"/>
-
-  <!-- rehydrateReport → Bericht_klar -->
-  <path d="M345,460 L345,480 L170,505" stroke="#7c3aed" stroke-width="2" fill="none" marker-end="url(#arrowPurple)"/>
-
-  <!-- rehydrateReport → KI (nur Metadaten) -->
-  <path d="M492,425 L677,278" stroke="#7c3aed" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#arrowPurple)"/>
-  <text x="610" y="370" font-size="8.5" fill="#7c3aed" transform="rotate(-36,610,370)">nur Metadaten</text>
-  <text x="622" y="382" font-size="8.5" fill="#7c3aed" transform="rotate(-36,622,382)">(kein Klarname!)</text>
-
-  <!-- ═══════════════════════════════════════════════════════
-       LEGENDE
-       ═══════════════════════════════════════════════════════ -->
-  <rect x="548" y="304" width="258" height="244" rx="10" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
-  <text x="677" y="322" text-anchor="middle" font-size="10.5" font-weight="700" fill="#334155">Legende</text>
-
-  <line x1="562" y1="338" x2="592" y2="338" stroke="#f97316" stroke-width="2" marker-end="url(#arrowOrange)"/>
-  <text x="598" y="342" font-size="9.5" fill="#374151">Hinweg: Rohdaten → Server</text>
-
-  <line x1="562" y1="358" x2="592" y2="358" stroke="#22c55e" stroke-width="2" marker-end="url(#arrowGreen)"/>
-  <text x="598" y="362" font-size="9.5" fill="#374151">Hinweg: pseudonymisiert → Modell</text>
-
-  <line x1="562" y1="378" x2="592" y2="378" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowGray)"/>
-  <text x="598" y="382" font-size="9.5" fill="#374151">Rückweg: Modell → Server</text>
-
-  <line x1="562" y1="398" x2="592" y2="398" stroke="#ec4899" stroke-width="2" stroke-dasharray="6,3"/>
-  <text x="598" y="402" font-size="9.5" fill="#374151">Rückweg: rehydriert → Moodle</text>
-
-  <line x1="562" y1="418" x2="592" y2="418" stroke="#eab308" stroke-width="1.5" stroke-dasharray="4,2"/>
-  <text x="598" y="422" font-size="9.5" fill="#374151">pseudonym-map (lokal)</text>
-
-  <line x1="562" y1="438" x2="592" y2="438" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrowPurple)"/>
-  <text x="598" y="442" font-size="9.5" fill="#374151">Datei-Rehydrierung (lokal)</text>
-
-  <rect x="562" y="454" width="234" height="46" rx="5" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
-  <text x="679" y="471" text-anchor="middle" font-size="9" fill="#166534" font-weight="600">Datenschutz-Garantie</text>
-  <text x="679" y="485" text-anchor="middle" font-size="9" fill="#166534">Klarnamen verlassen den lokalen</text>
-  <text x="679" y="497" text-anchor="middle" font-size="9" fill="#166534">Server-Prozess NIEMALS.</text>
-
-  <!-- Hinweg-Label oben -->
-  <text x="560" y="154" text-anchor="middle" font-size="9" fill="#64748b" font-style="italic">← Hinweg (Moodle → KI) →</text>
+  <rect x="520" y="353" width="266" height="46" rx="7" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="653" y="373" text-anchor="middle" font-size="10.5" font-weight="600" fill="#475569">nur Metadaten</text>
+  <text x="653" y="389" text-anchor="middle" font-size="9" fill="#64748b">{ ok, pseudonyme_ersetzt, schueler[] }</text>
 </svg>
