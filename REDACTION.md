@@ -81,8 +81,9 @@ Klarnamen jemals an das Modell übertragen werden. Das Tool:
 1. Validiert den Dateipfad gegen `REHYDRATE_BASE_DIR` (Pfad-Traversal sicher abgewiesen).
 2. Liest `.md`/`.txt` direkt in TypeScript (nutzt dieselbe Zuordnungstabelle wie die
    laufende Redaktion).
-3. Verarbeitet `.docx` über `rehydrate.py` als Python-Subprozess (python-docx;
-   Runs, Tabellen, Kopf-/Fußzeilen).
+3. Verarbeitet `.docx` vollständig in Node.js via **JSZip** (kein Python nötig):
+   öffnet das DOCX-ZIP, ersetzt Pseudonyme in `word/document.xml` und allen
+   Header-/Footer-Parts, schreibt das ZIP zurück.
 4. Gibt **ausschließlich Metadaten** zurück – kein Klarname im Rückgabewert:
    ```json
    { "ok": true, "datei": "bericht_klar.md",
@@ -95,17 +96,4 @@ Klarnamen jemals an das Modell übertragen werden. Das Tool:
 | Variable             | Bedeutung                                                          |
 | -------------------- | ------------------------------------------------------------------ |
 | `REHYDRATE_BASE_DIR` | Basisordner für Berichtsdateien (Standard: `../MoodleTutor/Berichte`) |
-| `PYTHON_BIN`         | Python-Executable für .docx (Standard: `python3`)                 |
 | `PSEUDONYM_MAP`      | Pfad zur Zuordnungsdatei (wie bei der übrigen Redaktion)           |
-
-### DOCX-Voraussetzung
-
-```bash
-pip install python-docx
-```
-
-Das Skript `rehydrate.py` liegt im Projektstamm und kann auch direkt aufgerufen werden:
-
-```bash
-python rehydrate.py --infile bericht.docx --outfile bericht_klar.docx --field fullname
-```

@@ -261,6 +261,29 @@ function resolveNameForField(
 }
 
 /**
+ * Liefert Ersetzungspaare (Pseudonym-Regex → Klarname) aus dem In-Memory-Store.
+ * Kann von externen Modulen (z.B. DOCX-Rehydrierung) genutzt werden.
+ * Längste Pseudonyme zuerst, um Teilüberlappungen zu vermeiden.
+ */
+export function getRehydrationPairs(
+  field: "fullname" | "email" | "username"
+): Array<{ re: RegExp; repl: string; pseudonym: string }> {
+  const pairs: Array<{ re: RegExp; repl: string; pseudonym: string }> = [];
+  for (const id of Object.values(store.users)) {
+    if (!id.pseudonym) continue;
+    const name = resolveNameForField(id, field);
+    if (!name) continue;
+    const re = new RegExp(
+      "(?<![\\p{L}\\p{N}_])" + escapeRe(id.pseudonym) + "(?![\\p{L}\\p{N}_])",
+      "giu"
+    );
+    pairs.push({ re, repl: name, pseudonym: id.pseudonym });
+  }
+  pairs.sort((a, b) => b.re.source.length - a.re.source.length);
+  return pairs;
+}
+
+/**
  * Rehydriert Text mit explizit gewähltem Feld – für moodle_rehydrate_report.
  * Gibt nur Pseudonyme zurück (keine Klarnamen).
  */
@@ -271,15 +294,9 @@ export function rehydrateTextForField(
   if (!text) return { text, replaced: [] };
   let out = text;
   const replaced: string[] = [];
-  const ids = Object.values(store.users)
-    .filter((id) => id.pseudonym)
-    .sort((a, b) => b.pseudonym.length - a.pseudonym.length);
-  for (const id of ids) {
-    const name = resolveNameForField(id, field);
-    if (name && out.includes(id.pseudonym)) {
-      out = out.split(id.pseudonym).join(name);
-      replaced.push(id.pseudonym);
-    }
+  for (const { re, repl, pseudonym } of getRehydrationPairs(field)) {
+    const next = out.replace(re, repl);
+    if (next !== out) { replaced.push(pseudonym); out = next; }
   }
   return { text: out, replaced };
 }

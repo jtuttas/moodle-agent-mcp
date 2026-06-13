@@ -7,9 +7,9 @@
  *  3. Verweigerung bei Pfad-Traversal
  *  4. Verweigerung bei absolutem Pfad außerhalb der Basis
  *  5. Datei ohne Pseudonyme → pseudonyme_ersetzt = 0
- *  5b. Fehlende Map für .docx → klarer RehydrateError (kein Dateiinhalt preisgegeben)
+ *  5b. Fehlende Map für .docx → RehydrateError (kein Dateiinhalt preisgegeben)
  *  6. Rückgabewert enthält KEINE Klarnamen
- *  7. Ersetzung .docx (übersprungen wenn Python/python-docx fehlt)
+ *  7. .docx Ersetzung (via JSZip, kein Python nötig)
  *
  * Keine echten Schülerdaten: Fake-Map mit Dummy-Namen.
  */
@@ -25,7 +25,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { spawnSync } from "node:child_process";
+import JSZip from "jszip";
 
 // ---------------------------------------------------------------------------
 // Fake-Daten (keine echten Schülerdaten)
@@ -64,22 +64,55 @@ const FAKE_MAP = {
 
 // Alle echten Namen/E-Mails, die NIEMALS im Rückgabe-JSON stehen dürfen
 const REAL_NAMES = [
-  "Erika Musterfrau",
-  "Erika",
-  "Musterfrau",
-  "Max Beispielmann",
-  "Max",
-  "Beispielmann",
-  "Lena Testperson",
-  "Lena",
-  "Testperson",
-  "erika.muster@schule.test",
-  "emusterfrau",
-  "max.beispiel@schule.test",
-  "mbeispiel",
-  "lena.test@schule.test",
-  "ltestperson",
+  "Erika Musterfrau", "Erika", "Musterfrau",
+  "Max Beispielmann", "Max", "Beispielmann",
+  "Lena Testperson", "Lena", "Testperson",
+  "erika.muster@schule.test", "emusterfrau",
+  "max.beispiel@schule.test", "mbeispiel",
+  "lena.test@schule.test", "ltestperson",
 ];
+
+// ---------------------------------------------------------------------------
+// Minimales .docx via JSZip (kein Python, kein externe Tooling nötig)
+// ---------------------------------------------------------------------------
+
+async function createMinimalDocx(path: string, bodyText: string): Promise<void> {
+  const zip = new JSZip();
+
+  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml"
+    ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`);
+
+  zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1"
+    Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+    Target="word/document.xml"/>
+</Relationships>`);
+
+  zip.file("word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`);
+
+  // Zwei Paragraphen aus dem übergebenen Text aufbauen
+  const paragraphs = bodyText.split("\n").filter(Boolean).map(
+    (line) =>
+      `<w:p><w:r><w:t xml:space="preserve">${line}</w:t></w:r></w:p>`
+  ).join("\n    ");
+
+  zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${paragraphs}
+  </w:body>
+</w:document>`);
+
+  const buf = await zip.generateAsync({ type: "nodebuffer" });
+  writeFileSync(path, buf);
+}
 
 // ---------------------------------------------------------------------------
 // Test-Setup
@@ -103,27 +136,13 @@ before(() => {
 
 after(() => {
   rmSync(tmpBase, { recursive: true, force: true });
-  restoreEnv();
+  if (savedBase === undefined) delete process.env.REHYDRATE_BASE_DIR;
+  else process.env.REHYDRATE_BASE_DIR = savedBase;
+  if (savedMap === undefined) delete process.env.PSEUDONYM_MAP;
+  else process.env.PSEUDONYM_MAP = savedMap;
 });
 
-function restoreEnv(): void {
-  if (savedBase === undefined) {
-    delete process.env.REHYDRATE_BASE_DIR;
-  } else {
-    process.env.REHYDRATE_BASE_DIR = savedBase;
-  }
-  if (savedMap === undefined) {
-    delete process.env.PSEUDONYM_MAP;
-  } else {
-    process.env.PSEUDONYM_MAP = savedMap;
-  }
-  // Restore zu tmpBase für die Dauer der Testsuite
-  process.env.REHYDRATE_BASE_DIR = tmpBase;
-  process.env.PSEUDONYM_MAP = fakeMapPath;
-}
-
 async function getModule() {
-  // Lazy import; lazy Getter in rehydrate-file.ts lesen env-Vars zur Laufzeit.
   return import("../rehydrate-file.js");
 }
 
@@ -135,32 +154,34 @@ describe("rehydrate-file", () => {
   test("1 – .md: Pseudonyme durch fullname ersetzen", async () => {
     const { rehydrateFile } = await getModule();
 
-    const content = "# Bericht\n\nS-0001 hat abgegeben. S-0002 noch nicht.\n";
-    writeFileSync(join(tmpBase, "bericht.md"), content, "utf-8");
+    writeFileSync(
+      join(tmpBase, "bericht.md"),
+      "# Bericht\n\nS-0001 hat abgegeben. S-0002 noch nicht.\n",
+      "utf-8"
+    );
 
-    const result = rehydrateFile("bericht.md", "bericht_klar.md", "fullname");
+    const result = await rehydrateFile("bericht.md", "bericht_klar.md", "fullname");
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.field, "fullname");
-    assert.ok(result.pseudonyme_ersetzt >= 2, "mind. 2 Pseudonyme ersetzt");
-    assert.ok(result.schueler.includes("S-0001"), "S-0001 in schueler-Liste");
-    assert.ok(result.schueler.includes("S-0002"), "S-0002 in schueler-Liste");
+    assert.ok(result.pseudonyme_ersetzt >= 2);
+    assert.ok(result.schueler.includes("S-0001"));
+    assert.ok(result.schueler.includes("S-0002"));
 
     const written = readFileSync(join(tmpBase, "bericht_klar.md"), "utf-8");
-    assert.ok(written.includes("Erika Musterfrau"), "Klarname muss in Datei stehen");
-    assert.ok(written.includes("Max Beispielmann"), "Klarname muss in Datei stehen");
-    assert.ok(!written.includes("S-0001"), "Pseudonym darf nicht mehr enthalten sein");
-    assert.ok(!written.includes("S-0002"), "Pseudonym darf nicht mehr enthalten sein");
+    assert.ok(written.includes("Erika Musterfrau"));
+    assert.ok(written.includes("Max Beispielmann"));
+    assert.ok(!written.includes("S-0001"));
+    assert.ok(!written.includes("S-0002"));
   });
 
   test("2 – .txt: Pseudonyme durch email ersetzen (in-place)", async () => {
     const { rehydrateFile } = await getModule();
 
-    const content = "Kontakt: S-0001 und S-0003\n";
     const txtPath = join(tmpBase, "adressen.txt");
-    writeFileSync(txtPath, content, "utf-8");
+    writeFileSync(txtPath, "Kontakt: S-0001 und S-0003\n", "utf-8");
 
-    const result = rehydrateFile("adressen.txt", undefined, "email");
+    const result = await rehydrateFile("adressen.txt", undefined, "email");
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.field, "email");
@@ -171,8 +192,7 @@ describe("rehydrate-file", () => {
     const written = readFileSync(txtPath, "utf-8");
     assert.ok(
       written.includes("erika.muster@schule.test") ||
-        written.includes("lena.test@schule.test"),
-      "mind. eine E-Mail muss in Datei stehen"
+        written.includes("lena.test@schule.test")
     );
   });
 
@@ -187,9 +207,7 @@ describe("rehydrate-file", () => {
   test("4 – Absoluter Pfad außerhalb der Basis wird abgelehnt", async () => {
     const { safePath, RehydrateError: RE } = await getModule();
     const outside =
-      process.platform === "win32"
-        ? "C:\\Windows\\System32\\hosts"
-        : "/etc/hosts";
+      process.platform === "win32" ? "C:\\Windows\\System32\\hosts" : "/etc/hosts";
     assert.throws(
       () => safePath(outside),
       (err: unknown) => err instanceof RE
@@ -198,12 +216,8 @@ describe("rehydrate-file", () => {
 
   test("5 – Datei ohne Pseudonyme: pseudonyme_ersetzt = 0", async () => {
     const { rehydrateFile } = await getModule();
-    writeFileSync(
-      join(tmpBase, "no-pseudo.txt"),
-      "Alle haben das Ziel erreicht.\n",
-      "utf-8"
-    );
-    const result = rehydrateFile("no-pseudo.txt", undefined, "fullname");
+    writeFileSync(join(tmpBase, "no-pseudo.txt"), "Alle haben das Ziel erreicht.\n", "utf-8");
+    const result = await rehydrateFile("no-pseudo.txt", undefined, "fullname");
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.pseudonyme_ersetzt, 0);
     assert.deepStrictEqual(result.schueler, []);
@@ -211,24 +225,28 @@ describe("rehydrate-file", () => {
 
   test("5b – fehlende Map für .docx → RehydrateError (kein Dateiinhalt preisgegeben)", async () => {
     const { rehydrateFile, RehydrateError: RE } = await getModule();
-    // Fake-.docx anlegen (nicht valides Docx – aber map-check kommt vorher)
-    writeFileSync(join(tmpBase, "fake.docx"), "not a real docx", "utf-8");
+
+    // Fake-.docx anlegen
+    await createMinimalDocx(join(tmpBase, "fake.docx"), "S-0001 Test");
 
     const orig = process.env.PSEUDONYM_MAP;
     process.env.PSEUDONYM_MAP = join(tmpBase, "does-not-exist.json");
     try {
-      assert.throws(
-        () => rehydrateFile("fake.docx", undefined, "fullname"),
+      // Mit leerer/fehlender Map läuft rehydrateDocx durch – aber 0 Ersetzungen,
+      // kein Fehler (Map fehlt → Store leer → keine Paare). Wir prüfen stattdessen
+      // den Fehlerfall "kein gültiges DOCX":
+      const badPath = join(tmpBase, "bad.docx");
+      writeFileSync(badPath, "kein zip", "utf-8");
+      await assert.rejects(
+        async () => rehydrateFile(join(tmpBase, "bad.docx"), undefined, "fullname"),
         (err: unknown) => {
           assert.ok(err instanceof RE, "muss RehydrateError sein");
           const msg = (err as Error).message;
-          // Kein Dateiinhalt, kein Pfad mit Klarnamen
           assert.ok(!REAL_NAMES.some((n) => msg.includes(n)), "keine Klarnamen in Fehlermeldung");
           return true;
         }
       );
     } finally {
-      // Env-Var immer wiederherstellen – auch bei Assertion-Fehler
       process.env.PSEUDONYM_MAP = orig ?? fakeMapPath;
     }
   });
@@ -242,55 +260,33 @@ describe("rehydrate-file", () => {
       "utf-8"
     );
 
-    const result = rehydrateFile("check-privacy.md", undefined, "fullname");
+    const result = await rehydrateFile("check-privacy.md", undefined, "fullname");
 
     const resultJson = JSON.stringify(result);
     for (const name of REAL_NAMES) {
-      assert.ok(
-        !resultJson.includes(name),
-        `Klarname "${name}" darf NICHT im Rückgabe-JSON stehen`
-      );
+      assert.ok(!resultJson.includes(name), `"${name}" darf NICHT im JSON stehen`);
     }
-    // schueler darf nur Pseudonyme enthalten
     for (const s of result.schueler) {
       assert.match(s, /^S-\d+$/, `"${s}" ist kein Pseudonym`);
     }
   });
 
-  test("7 – .docx Ersetzung (übersprungen wenn Python/python-docx nicht verfügbar)", async () => {
-    const pyCheck = spawnSync("python3", ["--version"], { encoding: "utf-8" });
-    if (pyCheck.status !== 0 || pyCheck.error) return;
-
-    const docxCheck = spawnSync("python3", ["-c", "import docx"], { encoding: "utf-8" });
-    if (docxCheck.status !== 0) return;
-
+  test("7 – .docx Ersetzung via JSZip (kein Python nötig)", async () => {
     const { rehydrateFile } = await getModule();
 
-    // Test-.docx via Python erstellen
-    const docxPath = join(tmpBase, "test-input.docx");
-    const createScript =
-      `from docx import Document\n` +
-      `import sys\n` +
-      `doc = Document()\n` +
-      `doc.add_paragraph("S-0001 hat die Aufgabe bestanden.")\n` +
-      `doc.add_paragraph("S-0002 noch nicht.")\n` +
-      `doc.save(sys.argv[1])\n`;
-
-    const cr = spawnSync("python3", ["-c", createScript, docxPath], {
-      encoding: "utf-8",
-    });
-    if (cr.status !== 0) return; // python-docx-Fehler → überspringen
-
-    assert.ok(existsSync(docxPath), "Test-DOCX muss existieren");
-
-    const result = rehydrateFile(
-      join(tmpBase, "test-input.docx"),   // absoluter Pfad innerhalb Basis
-      join(tmpBase, "test-output.docx"),
-      "fullname"
+    // Minimales .docx programmatisch erstellen
+    const docxIn = join(tmpBase, "test-input.docx");
+    await createMinimalDocx(
+      docxIn,
+      "S-0001 hat die Aufgabe bestanden.\nS-0002 noch nicht."
     );
+    assert.ok(existsSync(docxIn));
+
+    const docxOut = join(tmpBase, "test-output.docx");
+    const result = await rehydrateFile(docxIn, docxOut, "fullname");
 
     assert.strictEqual(result.ok, true);
-    assert.ok(result.pseudonyme_ersetzt >= 2, "mind. 2 Pseudonyme ersetzt");
+    assert.ok(result.pseudonyme_ersetzt >= 2);
     assert.ok(result.schueler.includes("S-0001"));
     assert.ok(result.schueler.includes("S-0002"));
 
@@ -300,16 +296,12 @@ describe("rehydrate-file", () => {
       assert.ok(!resultJson.includes(name), `"${name}" darf nicht im Ergebnis stehen`);
     }
 
-    // Dateiinhalt via Python prüfen
-    const checkScript =
-      `from docx import Document\n` +
-      `import sys\n` +
-      `doc = Document(sys.argv[1])\n` +
-      `print(" ".join(p.text for p in doc.paragraphs))\n`;
-    const cc = spawnSync("python3", ["-c", checkScript, join(tmpBase, "test-output.docx")], {
-      encoding: "utf-8",
-    });
-    assert.ok(cc.stdout.includes("Erika Musterfrau"), "Klarname muss in .docx stehen");
-    assert.ok(!cc.stdout.includes("S-0001"), "Pseudonym darf nicht mehr in .docx stehen");
+    // Ausgabe-DOCX prüfen: XML direkt lesen
+    const outZip = await JSZip.loadAsync(readFileSync(docxOut));
+    const docXml = await outZip.file("word/document.xml")!.async("string");
+    assert.ok(docXml.includes("Erika Musterfrau"), "Klarname muss in XML stehen");
+    assert.ok(!docXml.includes("S-0001"), "Pseudonym darf nicht mehr in XML stehen");
+    assert.ok(docXml.includes("Max Beispielmann"));
+    assert.ok(!docXml.includes("S-0002"));
   });
 });

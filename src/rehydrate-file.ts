@@ -4,13 +4,14 @@
 // nur Metadaten (Anzahl ersetzter Pseudonyme, Pseudonym-Kürzel, Feldname).
 //
 // .txt/.md  → TypeScript direkt (rehydrateTextForField aus redact.ts)
-// .docx     → Python-Subprozess (rehydrate.py, benötigt python-docx)
+// .docx     → JSZip: ZIP öffnen, XML-Parts ersetzen, ZIP zurückschreiben
+//             Verarbeitet word/document.xml sowie alle Header-/Footer-Parts.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, dirname, join, relative, isAbsolute, basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
-import { rehydrateTextForField } from "./redact.js";
+import JSZip from "jszip";
+import { rehydrateTextForField, getRehydrationPairs } from "./redact.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(HERE, "..");
@@ -21,16 +22,6 @@ export function getRehydrateBaseDir(): string {
     process.env.REHYDRATE_BASE_DIR ??
       join(PROJECT_ROOT, "..", "MoodleTutor", "Berichte")
   );
-}
-
-/** Pfad zur Zuordnungsdatei (lazy). */
-export function getMapPath(): string {
-  return process.env.PSEUDONYM_MAP ?? join(PROJECT_ROOT, "pseudonym-map.json");
-}
-
-/** Pfad zum Python-Skript für DOCX-Verarbeitung. */
-export function getPythonScriptPath(): string {
-  return join(PROJECT_ROOT, "rehydrate.py");
 }
 
 export class RehydrateError extends Error {}
@@ -71,11 +62,11 @@ export interface RehydrateResult {
  * @param outfile Ausgabedatei (optional; Standard: in-place)
  * @param field   Welches Klardaten-Feld einsetzen (Standard: fullname)
  */
-export function rehydrateFile(
+export async function rehydrateFile(
   infile: string,
   outfile: string | undefined,
   field: "fullname" | "email" | "username" = "fullname"
-): RehydrateResult {
+): Promise<RehydrateResult> {
   const absIn = safePath(infile);
   if (!existsSync(absIn)) {
     throw new RehydrateError(`Eingabedatei nicht gefunden: ${basename(infile)}`);
@@ -112,52 +103,72 @@ function rehydrateTextFile(
 }
 
 // ---------------------------------------------------------------------------
-// .docx  (Python-Subprozess)
+// .docx  (JSZip + XML-Ersetzung, kein Python)
 // ---------------------------------------------------------------------------
 
-function rehydrateDocx(
+/** Escaped Sonderzeichen für XML-Textinhalt (verhindert kaputtes XML). */
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+async function rehydrateDocx(
   absIn: string,
   absOut: string,
   field: "fullname" | "email" | "username"
-): RehydrateResult {
-  const scriptPath = getPythonScriptPath();
-  const mapPath = getMapPath();
+): Promise<RehydrateResult> {
+  const pairs = getRehydrationPairs(field);
+  const replaced = new Set<string>();
 
-  if (!existsSync(scriptPath)) {
-    throw new RehydrateError(
-      `rehydrate.py nicht gefunden. Python-DOCX-Verarbeitung nicht möglich.`
-    );
-  }
-  if (!existsSync(mapPath)) {
-    throw new RehydrateError(
-      "pseudonym-map.json nicht gefunden. Bitte zuerst Schülerdaten über ein Moodle-Tool laden."
-    );
-  }
-
-  const pythonBin = process.env.PYTHON_BIN ?? "python3";
-  const proc = spawnSync(
-    pythonBin,
-    [scriptPath, "--infile", absIn, "--outfile", absOut,
-      "--field", field, "--map-path", mapPath, "--json-result"],
-    { encoding: "utf-8", maxBuffer: 4 * 1024 * 1024 }
-  );
-
-  if (proc.error) {
-    throw new RehydrateError(
-      `Python konnte nicht gestartet werden: ${proc.error.message}. ` +
-      "Sicherstellen: python3 und python-docx sind installiert (pip install python-docx)."
-    );
-  }
-  if (proc.status !== 0) {
-    const msg = (proc.stderr ?? "").trim();
-    throw new RehydrateError(`rehydrate.py Fehler: ${msg || `Exit ${proc.status}`}`);
-  }
-
+  let zip: JSZip;
   try {
-    return JSON.parse(proc.stdout.trim()) as RehydrateResult;
+    zip = await JSZip.loadAsync(readFileSync(absIn));
   } catch {
     throw new RehydrateError(
-      `Unerwartete Ausgabe von rehydrate.py – kein gültiges JSON.`
+      "Datei konnte nicht als DOCX gelesen werden (kein gültiges ZIP/DOCX-Format)."
     );
   }
+
+  // Relevante XML-Parts: Hauptdokument + alle Header/Footer
+  const partNames = Object.keys(zip.files).filter(
+    (name) =>
+      name === "word/document.xml" ||
+      /^word\/(header|footer)\d*\.xml$/i.test(name)
+  );
+
+  for (const partName of partNames) {
+    const file = zip.file(partName);
+    if (!file) continue;
+    let xml = await file.async("string");
+    let changed = false;
+
+    for (const { re, repl, pseudonym } of pairs) {
+      // XML-escape des Klarnamens, damit kein ungültiges XML entsteht
+      const xmlRepl = escapeXml(repl);
+      const next = xml.replace(re, xmlRepl);
+      if (next !== xml) {
+        replaced.add(pseudonym);
+        xml = next;
+        changed = true;
+      }
+    }
+
+    if (changed) zip.file(partName, xml);
+  }
+
+  const outputBuffer = await zip.generateAsync({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+  });
+  writeFileSync(absOut, outputBuffer);
+
+  return {
+    ok: true,
+    datei: basename(absOut),
+    pseudonyme_ersetzt: replaced.size,
+    schueler: [...replaced].sort(),
+    field,
+  };
 }

@@ -1557,7 +1557,7 @@ const handleToolCall = async (request: {
           : "fullname") as "fullname" | "email" | "username";
 
         try {
-          const result = rehydrateFile(infile, outfile, field);
+          const result = await rehydrateFile(infile, outfile, field);
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           };

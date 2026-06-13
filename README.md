@@ -37,6 +37,7 @@ Ein [Model Context Protocol (MCP)](https://modelcontextprotocol.io) Server, der 
 - Node.js 18 oder höher
 - Eine Moodle-Instanz (≥ Moodle 3.6) mit aktivierten Web Services
 - Claude Code CLI
+- Für `.docx`-Rehydrierung: keine weiteren Abhängigkeiten – läuft vollständig in Node.js (JSZip)
 
 ---
 
@@ -118,7 +119,6 @@ Beide Clients benötigen dieselben zwei Variablen:
 | `REDACT_PII` | `1` (Standard) = Pseudonymisierung aktiv; `0` = aus (nur Debugging) | `1` |
 | `PSEUDONYM_MAP` | Pfad zur vertraulichen Zuordnungsdatei (Standard: `pseudonym-map.json` im Projektstamm) | `/sicherer/pfad/map.json` |
 | `REHYDRATE_BASE_DIR` | Basisordner für `moodle_rehydrate_report` (Standard: `../MoodleTutor/Berichte`) | `/home/lehrer/Berichte` |
-| `PYTHON_BIN` | Python-Executable für .docx-Rehydrierung (Standard: `python3`) | `python3` |
 
 ---
 
@@ -536,9 +536,7 @@ field    (optional)  Welches Klardaten-Feld einsetzen: fullname (Standard) | ema
 
 **Sicherheit:**
 - Pfad-Traversal (`..`) und absolute Pfade außerhalb von `REHYDRATE_BASE_DIR` werden abgewiesen.
-- `.docx`-Verarbeitung über Python (`python-docx`): Runs, Tabellen, Kopf-/Fußzeilen.  
-  Voraussetzung: `pip install python-docx`
-- Standalone-CLI: `python rehydrate.py --infile bericht.docx --field fullname`
+- `.docx`-Verarbeitung vollständig in Node.js via **JSZip**: öffnet das DOCX-ZIP, ersetzt Pseudonyme in `word/document.xml` sowie allen Header-/Footer-Parts, schreibt das ZIP zurück. Kein Python, keine externe Abhängigkeit.
 
 ---
 
@@ -749,7 +747,6 @@ Lokale Dateien (`.md`, `.txt`, `.docx`) können mit `moodle_rehydrate_report` re
 | `REDACT_PII` | `1` | `0` = Redaktion deaktiviert (nur Debugging) |
 | `PSEUDONYM_MAP` | `pseudonym-map.json` | Pfad zur vertraulichen Zuordnungsdatei |
 | `REHYDRATE_BASE_DIR` | `../MoodleTutor/Berichte` | Erlaubter Ordner für Berichtsdateien |
-| `PYTHON_BIN` | `python3` | Python-Executable für .docx-Verarbeitung |
 
 > Die Datei `pseudonym-map.json` ist durch `.gitignore` vom Commit ausgeschlossen und darf niemals an Modell, Client oder Cloud weitergegeben werden.
 
