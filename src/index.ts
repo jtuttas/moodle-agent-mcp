@@ -283,17 +283,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "moodle_get_assignment_details",
       description:
-        "Liest Aufgaben-Details (Beschreibung/Intro, Abgabefrist, Bewertungsinfos) eines Kurses via mod_assign_get_assignments. Optional nach assignid filtern.",
+        "Liest Aufgaben-Details (Beschreibung/Intro, Abgabefrist, Bewertungsinfos) anhand der cmid – das ist die 'id' aus der Moodle-URL (z.B. view.php?id=9683).",
       inputSchema: {
         type: "object",
         properties: {
-          courseid: { type: "number", description: "Kurs-ID" },
-          assignid: {
+          cmid: {
             type: "number",
-            description: "Aufgaben-ID (instance-ID) zur Filterung – optional",
+            description: "Course-Module-ID – der 'id'-Parameter aus der Moodle-URL der Aufgabe",
           },
         },
-        required: ["courseid"],
+        required: ["cmid"],
       },
     },
     {
@@ -1007,31 +1006,45 @@ const handleToolCall = async (request: {
 
       // ------------------------------------------------------------------
       case "moodle_get_assignment_details": {
-        const raw = (await moodleCall("mod_assign_get_assignments", {
-          courseids: [args.courseid],
-        })) as { courses: Array<{ assignments: Array<Record<string, unknown>> }> };
+        // Schritt 1: courseid + instance (assignid) aus der cmid ermitteln
+        const cm = (await moodleCall("core_course_get_course_module", {
+          id: args.cmid,
+        })) as { cm: { course: number; instance: number; modname: string } };
 
-        let assignments = raw.courses.flatMap((c) => c.assignments);
-        if (args.assignid) {
-          assignments = assignments.filter((a) => a.id === args.assignid);
+        if (cm.cm.modname !== "assign") {
+          throw new Error(`cmid ${args.cmid} ist kein assign-Modul (${cm.cm.modname}).`);
         }
 
-        const result = assignments.map((a) => ({
-          id: a.id,
-          cmid: a.cmid,
-          name: a.name,
-          intro: a.intro,
-          introformat: a.introformat,
-          introattachments: a.introattachments,
-          duedate: a.duedate,
-          allowsubmissionsfromdate: a.allowsubmissionsfromdate,
-          cutoffdate: a.cutoffdate,
-          gradingduedate: a.gradingduedate,
-          maxattempts: a.maxattempts,
-          teamsubmission: a.teamsubmission,
-          blindmarking: a.blindmarking,
-          grade: a.grade,
-        }));
+        // Schritt 2: Aufgaben-Details laden und auf diese Aufgabe filtern
+        const raw = (await moodleCall("mod_assign_get_assignments", {
+          courseids: [cm.cm.course],
+        })) as { courses: Array<{ assignments: Array<Record<string, unknown>> }> };
+
+        const assignment = raw.courses
+          .flatMap((c) => c.assignments)
+          .find((a) => a.id === cm.cm.instance);
+
+        if (!assignment) {
+          throw new Error(`Aufgabe mit cmid ${args.cmid} nicht gefunden.`);
+        }
+
+        const result = {
+          id: assignment.id,
+          cmid: args.cmid,
+          courseid: cm.cm.course,
+          name: assignment.name,
+          intro: assignment.intro,
+          introformat: assignment.introformat,
+          introattachments: assignment.introattachments,
+          duedate: assignment.duedate,
+          allowsubmissionsfromdate: assignment.allowsubmissionsfromdate,
+          cutoffdate: assignment.cutoffdate,
+          gradingduedate: assignment.gradingduedate,
+          maxattempts: assignment.maxattempts,
+          teamsubmission: assignment.teamsubmission,
+          blindmarking: assignment.blindmarking,
+          grade: assignment.grade,
+        };
 
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
