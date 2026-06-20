@@ -281,6 +281,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "moodle_get_assignment_details",
+      description:
+        "Liest Aufgaben-Details (Beschreibung/Intro, Abgabefrist, Bewertungsinfos) eines Kurses via mod_assign_get_assignments. Optional nach assignid filtern.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          courseid: { type: "number", description: "Kurs-ID" },
+          assignid: {
+            type: "number",
+            description: "Aufgaben-ID (instance-ID) zur Filterung – optional",
+          },
+        },
+        required: ["courseid"],
+      },
+    },
+    {
       name: "moodle_get_assignment_feedback",
       description:
         "Liest das vorhandene Feedback und die Bewertung für eine Aufgabe eines Schülers aus.",
@@ -987,6 +1003,37 @@ const handleToolCall = async (request: {
         }
 
         return { content: [{ type: "text", text: JSON.stringify(modules, null, 2) }] };
+      }
+
+      // ------------------------------------------------------------------
+      case "moodle_get_assignment_details": {
+        const raw = (await moodleCall("mod_assign_get_assignments", {
+          courseids: [args.courseid],
+        })) as { courses: Array<{ assignments: Array<Record<string, unknown>> }> };
+
+        let assignments = raw.courses.flatMap((c) => c.assignments);
+        if (args.assignid) {
+          assignments = assignments.filter((a) => a.id === args.assignid);
+        }
+
+        const result = assignments.map((a) => ({
+          id: a.id,
+          cmid: a.cmid,
+          name: a.name,
+          intro: a.intro,
+          introformat: a.introformat,
+          introattachments: a.introattachments,
+          duedate: a.duedate,
+          allowsubmissionsfromdate: a.allowsubmissionsfromdate,
+          cutoffdate: a.cutoffdate,
+          gradingduedate: a.gradingduedate,
+          maxattempts: a.maxattempts,
+          teamsubmission: a.teamsubmission,
+          blindmarking: a.blindmarking,
+          grade: a.grade,
+        }));
+
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
       // ------------------------------------------------------------------
