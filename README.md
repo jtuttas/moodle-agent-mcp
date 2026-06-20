@@ -338,6 +338,16 @@ courseid (required)
 modtype  (optional)  Filter: 'assign', 'quiz', 'page', 'url', ...
 ```
 
+#### `moodle_get_assignment_details`
+Liest Beschreibung (HTML-Intro), Abgabefristen und Bewertungsinfos einer Aufgabe.  
+Die `cmid` ist der `id`-Parameter direkt aus der Moodle-URL (z. B. `view.php?id=9683`).
+
+```
+cmid (required)  Course-Module-ID aus der Moodle-URL
+```
+
+Intern werden automatisch `core_course_get_course_module` (cmid → courseid + assignid) und `mod_assign_get_assignments` kombiniert — keine manuelle Kurs-ID nötig.
+
 ---
 
 ### Aktivitätsabschlüsse
