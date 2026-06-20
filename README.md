@@ -95,6 +95,8 @@ Dem Service folgende Funktionen hinzufügen:
 | `core_message_get_conversation_messages` | Nachrichten einer Konversation lesen |
 | `core_cohort_search_cohorts` | Globale Kohorten durchsuchen |
 | `core_cohort_get_cohort_members` | Mitgliedschaft in Kohorten prüfen |
+| `core_course_get_course_module` | cmid → courseid/assignid auflösen (`moodle_get_assignment_details`) |
+| `mod_assign_get_assignments` | Aufgaben-Details: Beschreibung, Fristen, Bewertungsinfos |
 
 ### 4. Token erstellen
 
