@@ -163,7 +163,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "moodle_get_assignment_submissions",
       description:
-        "Gibt alle Abgaben zu einer oder mehreren Moodle-Aufgaben (mod_assign) zurück inkl. Status, Abgabedatum und Dateiinfos.",
+        "Gibt alle Abgaben zu einer oder mehreren Moodle-Aufgaben (mod_assign) zurück inkl. Status, Abgabedatum und Dateiinfos. Pro Abgabe werden zusätzlich 'grade' (aktuelle Note oder null) und 'grade_timemodified' (Zeitstempel der letzten Benotung oder null) ergänzt – damit ist 'zu bewerten vs. bereits bewertet & unverändert' aus einem einzigen Response ermittelbar (Vergleich submission.timemodified > grade_timemodified).",
       inputSchema: {
         type: "object",
         properties: {
@@ -219,6 +219,62 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["assignid", "userid", "grade", "feedback"],
+      },
+    },
+    {
+      name: "moodle_grade_assignments_batch",
+      description:
+        "Benotet mehrere Abgaben einer Aufgabe in einem einzigen Moodle-Call (mod_assign_save_grades). Deutlich schneller als wiederholtes moodle_grade_assignment für ganze Klassen. Feedback-Text darf Pseudonyme (S-0001 …) enthalten – diese werden lokal rehydriert. Bei Fehler des Batch-Calls wird automatisch auf Einzel-Saves zurückgefallen, um Teilerfolge zu ermitteln.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          assignid: { type: "number", description: "Aufgaben-ID (instance-ID)" },
+          grades: {
+            type: "array",
+            description: "Liste der Bewertungen (eine pro Schüler)",
+            items: {
+              type: "object",
+              properties: {
+                userid: { type: "number", description: "Benutzer-ID des Schülers" },
+                grade: {
+                  type: "number",
+                  description: "Note (gemäß Aufgaben-Skala, z.B. 0–100; -1 = keine Bewertung)",
+                },
+                feedback: {
+                  type: "string",
+                  description: "Textliches Feedback an den Schüler (HTML erlaubt, Pseudonyme werden lokal ersetzt)",
+                },
+                workflowstate: {
+                  type: "string",
+                  enum: ["", "released", "readyforreview", "inreview", "readyforrelease"],
+                  description: "'released' = sofort für Schüler sichtbar (Standard: released)",
+                },
+              },
+              required: ["userid", "grade", "feedback"],
+            },
+          },
+        },
+        required: ["assignid", "grades"],
+      },
+    },
+    {
+      name: "moodle_download_all_submissions",
+      description:
+        "Lädt alle Abgabe-Dateien einer Aufgabe in einem parallelen Batch herunter. Gibt pro Schüler-Datei { userid, filename, mimetype, size_bytes, data_base64 } zurück. Die userid bleibt als numerischer Schlüssel erhalten und ist NICHT von Pseudonymisierung betroffen – die Zuordnung userid ↔ Datei-Bytes ist damit eindeutig.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          assignid: {
+            type: "number",
+            description: "Aufgaben-ID (instance-ID)",
+          },
+          status: {
+            type: "string",
+            enum: ["", "draft", "submitted", "reopened"],
+            description: "Filter nach Abgabe-Status (Standard: 'submitted' – nur eingereichte Abgaben)",
+          },
+        },
+        required: ["assignid"],
       },
     },
     {
@@ -807,13 +863,79 @@ const handleToolCall = async (request: {
 
       // ------------------------------------------------------------------
       case "moodle_get_assignment_submissions": {
-        const params: Record<string, unknown> = {
+        const submParams: Record<string, unknown> = {
           assignmentids: args.assignmentids,
         };
-        if (args.status) params.status = args.status;
+        if (args.status) submParams.status = args.status;
 
-        const data = await moodleCall("mod_assign_get_submissions", params);
-        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        // Fetch submissions and grades in parallel; both use numeric userid as key,
+        // which is never replaced by the pseudonymisation layer (only names/emails are).
+        const [submData, gradesData] = await Promise.all([
+          moodleCall("mod_assign_get_submissions", submParams),
+          moodleCall("mod_assign_get_grades", { assignmentids: args.assignmentids }),
+        ]);
+
+        type AssignSubmissions = {
+          assignments?: Array<{
+            assignmentid: number;
+            submissions?: Array<{ userid: number } & Record<string, unknown>>;
+          }>;
+          warnings?: unknown[];
+        };
+        type AssignGrades = {
+          assignments?: Array<{
+            assignmentid: number;
+            grades?: Array<{
+              userid: number;
+              grade?: string;
+              timemodified?: number;
+            } & Record<string, unknown>>;
+          }>;
+        };
+
+        const submResult = submData as AssignSubmissions;
+        const gradeResult = gradesData as AssignGrades;
+
+        // Build lookup: assignmentid → Map<userid, {grade, grade_timemodified}>
+        const gradesByAssign = new Map<
+          number,
+          Map<number, { grade: string | null; grade_timemodified: number | null }>
+        >();
+        for (const a of gradeResult.assignments ?? []) {
+          const gradeMap = new Map<
+            number,
+            { grade: string | null; grade_timemodified: number | null }
+          >();
+          for (const g of a.grades ?? []) {
+            gradeMap.set(g.userid, {
+              grade: g.grade !== undefined ? g.grade : null,
+              grade_timemodified:
+                typeof g.timemodified === "number" ? g.timemodified : null,
+            });
+          }
+          gradesByAssign.set(a.assignmentid, gradeMap);
+        }
+
+        // Join grades into submissions – userid stays numeric, mapping is safe
+        const enriched = {
+          ...submResult,
+          assignments: (submResult.assignments ?? []).map((a) => {
+            const gradeMap = gradesByAssign.get(a.assignmentid) ?? new Map();
+            return {
+              ...a,
+              submissions: (a.submissions ?? []).map((s) => {
+                const g = gradeMap.get(s.userid);
+                return {
+                  ...s,
+                  grade: g?.grade ?? null,
+                  grade_timemodified: g?.grade_timemodified ?? null,
+                };
+              }),
+            };
+          }),
+        };
+
+        return { content: [{ type: "text", text: JSON.stringify(enriched, null, 2) }] };
       }
 
       // ------------------------------------------------------------------
@@ -877,6 +999,214 @@ const handleToolCall = async (request: {
             {
               type: "text",
               text: `✓ Bewertung gespeichert: Note ${args.grade} für Nutzer ${args.userid} (Aufgabe ${args.assignid})`,
+            },
+          ],
+        };
+      }
+
+      // ------------------------------------------------------------------
+      case "moodle_grade_assignments_batch": {
+        type GradeInput = {
+          userid: number;
+          grade: number;
+          feedback: string;
+          workflowstate?: string;
+        };
+        const grades = (args.grades as GradeInput[]) ?? [];
+
+        const results: Array<{ userid: number; ok: boolean; error?: string }> = [];
+
+        const buildGradeRecord = (g: GradeInput) => ({
+          userid: g.userid,
+          grade: g.grade,
+          attemptnumber: -1,
+          addattempt: 0,
+          workflowstate: g.workflowstate ?? "released",
+          plugindata: {
+            assignfeedbackcomments_editor: {
+              text: rehydrateText(String(g.feedback ?? "")),
+              format: 1, // HTML
+            },
+          },
+        });
+
+        try {
+          // Single batch call – saves the entire class in one round-trip
+          await moodleCall("mod_assign_save_grades", {
+            assignmentid: args.assignid,
+            applytoall: 0,
+            grades: grades.map(buildGradeRecord),
+          });
+          for (const g of grades) results.push({ userid: g.userid, ok: true });
+        } catch (batchErr) {
+          // Batch failed – fall back to individual saves to isolate which entry failed
+          await Promise.all(
+            grades.map(async (g) => {
+              try {
+                await moodleCall("mod_assign_save_grade", {
+                  assignmentid: args.assignid,
+                  userid: g.userid,
+                  grade: g.grade,
+                  attemptnumber: -1,
+                  addattempt: 0,
+                  workflowstate: g.workflowstate ?? "released",
+                  applytoall: 0,
+                  plugindata: {
+                    assignfeedbackcomments_editor: {
+                      text: rehydrateText(String(g.feedback ?? "")),
+                      format: 1,
+                    },
+                  },
+                });
+                results.push({ userid: g.userid, ok: true });
+              } catch (singleErr) {
+                results.push({
+                  userid: g.userid,
+                  ok: false,
+                  error: (singleErr as Error).message,
+                });
+              }
+            })
+          );
+        }
+
+        const okCount = results.filter((r) => r.ok).length;
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  summary: `${okCount}/${grades.length} Bewertungen gespeichert`,
+                  results,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      // ------------------------------------------------------------------
+      case "moodle_download_all_submissions": {
+        // Step 1: fetch all submissions to extract file URLs + userid mapping.
+        // userid is a number and is NOT replaced by pseudonymisation, so the
+        // userid↔file-bytes binding is preserved throughout.
+        const filterStatus = (args.status as string | undefined) ?? "submitted";
+        const submData = (await moodleCall("mod_assign_get_submissions", {
+          assignmentids: [args.assignid],
+          ...(filterStatus ? { status: filterStatus } : {}),
+        })) as {
+          assignments?: Array<{
+            submissions?: Array<{
+              userid: number;
+              status: string;
+              plugins?: Array<{
+                type: string;
+                fileareas?: Array<{
+                  area: string;
+                  files?: Array<{
+                    filename: string;
+                    filesize: number;
+                    fileurl: string;
+                    mimetype?: string;
+                  }>;
+                }>;
+              }>;
+            }>;
+          }>;
+        };
+
+        type FileEntry = {
+          userid: number;
+          filename: string;
+          fileurl: string;
+          mimetype: string;
+        };
+
+        const toDownload: FileEntry[] = [];
+        for (const sub of submData.assignments?.[0]?.submissions ?? []) {
+          const filePlugin = sub.plugins?.find((p) => p.type === "file");
+          const files =
+            filePlugin?.fileareas?.find((a) => a.area === "submission_files")?.files ?? [];
+          for (const f of files) {
+            toDownload.push({
+              userid: sub.userid, // numeric key – safe from pseudonymisation
+              filename: f.filename,
+              fileurl: f.fileurl,
+              mimetype: f.mimetype ?? "application/octet-stream",
+            });
+          }
+        }
+
+        if (toDownload.length === 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  { message: "Keine Dateien gefunden.", files: [] },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
+        // Step 2: download all files concurrently
+        const downloaded = await Promise.all(
+          toDownload.map(async (entry) => {
+            const authedUrl = entry.fileurl.includes("token=")
+              ? entry.fileurl
+              : `${entry.fileurl}?token=${MOODLE_TOKEN}`;
+            try {
+              const resp = await fetch(authedUrl);
+              if (!resp.ok) {
+                return {
+                  userid: entry.userid,
+                  filename: entry.filename,
+                  mimetype: entry.mimetype,
+                  ok: false,
+                  error: `HTTP ${resp.status}`,
+                };
+              }
+              const buffer = await resp.arrayBuffer();
+              return {
+                userid: entry.userid,
+                filename: entry.filename,
+                mimetype: entry.mimetype,
+                size_bytes: buffer.byteLength,
+                data_base64: Buffer.from(buffer).toString("base64"),
+                ok: true,
+                // TODO: PDF→PNG via pdftoppm (~100 dpi) – requires system dependency
+              };
+            } catch (e) {
+              return {
+                userid: entry.userid,
+                filename: entry.filename,
+                mimetype: entry.mimetype,
+                ok: false,
+                error: (e as Error).message,
+              };
+            }
+          })
+        );
+
+        const okCount = downloaded.filter((f) => f.ok).length;
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  summary: `${okCount}/${toDownload.length} Dateien geladen`,
+                  files: downloaded,
+                },
+                null,
+                2
+              ),
             },
           ],
         };
@@ -1008,7 +1338,7 @@ const handleToolCall = async (request: {
       case "moodle_get_assignment_details": {
         // Schritt 1: courseid + instance (assignid) aus der cmid ermitteln
         const cm = (await moodleCall("core_course_get_course_module", {
-          id: args.cmid,
+          cmid: args.cmid,
         })) as { cm: { course: number; instance: number; modname: string } };
 
         if (cm.cm.modname !== "assign") {
@@ -1020,12 +1350,17 @@ const handleToolCall = async (request: {
           courseids: [cm.cm.course],
         })) as { courses: Array<{ assignments: Array<Record<string, unknown>> }> };
 
-        const assignment = raw.courses
-          .flatMap((c) => c.assignments)
-          .find((a) => a.id === cm.cm.instance);
+        const allAssignments = raw.courses.flatMap((c) => c.assignments);
+        const assignment = allAssignments.find((a) => Number(a.id) === cm.cm.instance);
 
         if (!assignment) {
-          throw new Error(`Aufgabe mit cmid ${args.cmid} nicht gefunden.`);
+          throw new Error(
+            `Aufgabe mit cmid ${args.cmid} nicht gefunden. ` +
+            `cm.instance=${cm.cm.instance}, cm.course=${cm.cm.course}, ` +
+            `courses_returned=${raw.courses.length}, ` +
+            `assignments_returned=${allAssignments.length}, ` +
+            `ids=[${allAssignments.map((a) => a.id).join(",")}]`
+          );
         }
 
         const result = {

@@ -25,6 +25,8 @@ Ein [Model Context Protocol (MCP)](https://modelcontextprotocol.io) Server, der 
 - **Aktivitätsabschlüsse überwachen** – Wer hat welche Aktivität abgeschlossen?
 - **Abgaben lesen** – Inline-Texteingaben, Code-Dateien, Bilder und PDFs direkt im KI-Kontext
 - **Automatisches Feedback** – KI bewertet Abgaben und speichert Note + Kommentar in Moodle
+- **Batch-Benotung** – ganze Klasse (~25 Abgaben) in einem einzigen Moodle-Call benoten statt 25 sequenzieller Round-Trips
+- **Batch-Download** – alle Abgabedateien einer Aufgabe parallel herunterladen
 - **Quiz-Ergebnisse auswerten** – Versuche und beste Noten pro Schüler oder Kurs
 - **Noten-Übersicht** – Komplettes Bewertungsbuch abrufbar
 - **Mitteilungen senden** – Direkte Moodle-Nachrichten an einzelne Schüler oder ganze Kurse
@@ -84,8 +86,9 @@ Dem Service folgende Funktionen hinzufügen:
 | `core_course_get_contents` | Kursmodule |
 | `core_course_get_courses` | Kurs-Metadaten (Titel, Datum, …) |
 | `mod_assign_get_submissions` | Abgaben abrufen |
-| `mod_assign_get_grades` | Bewertungen lesen |
-| `mod_assign_save_grade` | Bewertung + Feedback speichern |
+| `mod_assign_get_grades` | Bewertungen lesen (auch für Notenstand in `moodle_get_assignment_submissions`) |
+| `mod_assign_save_grade` | Einzelne Bewertung + Feedback speichern (Fallback) |
+| `mod_assign_save_grades` | Batch-Benotung ganzer Klassen in einem Call |
 | `mod_quiz_get_user_attempts` | Quiz-Versuche |
 | `mod_quiz_get_user_best_grade` | Beste Quiz-Note |
 | `gradereport_user_get_grade_items` | Bewertungsbuch |
@@ -367,12 +370,21 @@ userid   (optional)  Ohne Angabe: alle Schüler des Kurses
 ### Aufgaben & Abgaben
 
 #### `moodle_get_assignment_submissions`
-Rohe Abgabe-Daten für eine oder mehrere Aufgaben.
+Abgabe-Daten für eine oder mehrere Aufgaben – inkl. aktuellem Notenstand.
 
 ```
 assignmentids (required)  Array von Aufgaben-IDs
 status        (optional)  '', 'draft', 'submitted', 'reopened'
 ```
+
+Pro Abgabe werden automatisch `grade` (aktuelle Note oder `null`) und `grade_timemodified` (Zeitstempel der Benotung oder `null`) ergänzt. Damit lässt sich allein aus diesem Response ermitteln, ob eine Abgabe noch nicht benotet oder seit der letzten Benotung verändert wurde:
+
+```
+submission.timemodified > grade_timemodified  →  neu abgegeben, noch nicht benotet
+grade_timemodified == null                    →  noch gar keine Note
+```
+
+Intern werden `mod_assign_get_submissions` und `mod_assign_get_grades` parallel abgerufen und per `userid` gejoined. Die `userid` ist eine Zahl und wird von der Pseudonymisierung nicht verändert – die Zuordnung Schüler ↔ Note bleibt korrekt.
 
 #### `moodle_get_submission_content`
 Liest den Inhalt einer einzelnen Abgabe vollständig aus:
@@ -408,7 +420,7 @@ userid   (required)
 ```
 
 #### `moodle_grade_assignment`
-Speichert eine Note und schriftliches Feedback direkt in Moodle.
+Speichert eine Note und schriftliches Feedback direkt in Moodle (einzelner Schüler).
 
 ```
 assignid      (required)  Aufgaben-ID
@@ -417,6 +429,38 @@ grade         (required)  Note (passend zur Aufgaben-Skala, z.B. 0–100)
 feedback      (required)  Feedback-Text (HTML erlaubt)
 workflowstate (optional)  'released' = sofort für Schüler sichtbar
 ```
+
+#### `moodle_grade_assignments_batch`
+Benotet eine ganze Klasse in **einem** Moodle-Call statt in 25 sequenziellen Aufrufen.
+
+```
+assignid (required)  Aufgaben-ID
+grades   (required)  Array mit einem Eintrag pro Schüler:
+  userid        (required)  Benutzer-ID
+  grade         (required)  Note (z.B. 0–100; -1 = keine Bewertung)
+  feedback      (required)  Feedback-Text (HTML erlaubt, Pseudonyme werden lokal ersetzt)
+  workflowstate (optional)  'released' (Standard) | 'readyforreview' | 'inreview' | 'readyforrelease'
+```
+
+Rückgabe: `{ summary: "25/25 Bewertungen gespeichert", results: [{ userid, ok, error? }, …] }`
+
+Intern wird `mod_assign_save_grades` genutzt (nativer Array-Call). Schlägt der Batch fehl, wird automatisch auf individuelle `mod_assign_save_grade`-Calls zurückgefallen, um Teilerfolge zu ermitteln.
+
+**Benötigte Moodle-Capability:** `mod/assign:grade`
+
+#### `moodle_download_all_submissions`
+Lädt alle Abgabedateien einer Aufgabe **parallel** herunter – deutlich schneller als sequentielles `moodle_download_submission_file` für ganze Klassen.
+
+```
+assignid (required)  Aufgaben-ID
+status   (optional)  Filter: 'submitted' (Standard) | '' | 'draft' | 'reopened'
+```
+
+Rückgabe: `{ summary: "23/25 Dateien geladen", files: [{ userid, filename, mimetype, size_bytes, data_base64, ok }, …] }`
+
+Die `userid` ist ein numerischer Schlüssel und wird nicht pseudonymisiert – die Zuordnung `userid ↔ Datei-Bytes` ist eindeutig und korrumpiert-frei.
+
+> **TODO:** PDF → PNG-Konvertierung via `pdftoppm` (~100 dpi) ist noch nicht implementiert (erfordert System-Dependency). Die rohen PDF-Bytes werden als Base64 zurückgegeben.
 
 #### `moodle_get_assignment_feedback`
 Liest vorhandenes Feedback und Note für eine Abgabe aus.
@@ -554,22 +598,31 @@ field    (optional)  Welches Klardaten-Feld einsetzen: fullname (Standard) | ema
 
 ## Use Cases
 
-### 1. Automatisches Code-Review und Feedback
+### 1. Automatisches Code-Review und Batch-Feedback (optimiert)
 
-**Szenario:** Eine Informatik-Klasse hat eine Python-Aufgabe abgegeben. Der Lehrer möchte für jeden Schüler automatisch Feedback generieren lassen.
+**Szenario:** Eine Informatik-Klasse hat eine Python-Aufgabe abgegeben. Der Lehrer möchte für jeden Schüler automatisch Feedback generieren lassen – schnell für eine ganze Klasse.
 
 **Prompt:**
-> „Hol dir alle Abgaben für die Python-Aufgabe (ID 23) in Kurs 7. Lade für jeden Schüler die Python-Datei herunter, prüfe ob der Code läuft, die Aufgabenstellung erfüllt und guten Stil hat. Gib eine Note von 0–100 und ein konstruktives Feedback auf Deutsch. Speichere alles direkt in Moodle und setze den Status auf 'released'."
+> „Hol alle Abgabedateien für Python-Aufgabe (ID 23) auf einmal. Nur Schüler, die seit der letzten Bewertung etwas geändert haben oder noch gar keine Note haben, prüfen. Für jeden betroffenen Schüler: Code-Review, Note 0–100, konstruktives Feedback. Alle auf einmal in Moodle speichern."
 
-**Tool-Kette:**
+**Tool-Kette (optimiert mit Batch-Tools):**
 ```
 moodle_get_assignment_submissions (assignmentids: [23])
-  → für jeden Schüler:
-    moodle_get_submission_content (assignid: 23, userid: X)
-    moodle_download_submission_file (fileurl: "...")
-    [KI analysiert Code]
-    moodle_grade_assignment (assignid: 23, userid: X, grade: 87, feedback: "...", workflowstate: "released")
+  → [KI filtert: grade==null oder submission.timemodified > grade_timemodified]
+moodle_download_all_submissions (assignid: 23)
+  → [alle Dateien in einem Parallelaufruf]
+  → [KI analysiert jeden Code]
+moodle_grade_assignments_batch (
+  assignid: 23,
+  grades: [
+    { userid: 11, grade: 87, feedback: "...", workflowstate: "released" },
+    { userid: 14, grade: 73, feedback: "...", workflowstate: "released" },
+    …  // ganze Klasse in einem Call
+  ]
+)
 ```
+
+> Statt ~75 sequenzieller Moodle-Round-Trips (3 pro Schüler × 25) reduziert sich das auf 3 Calls insgesamt.
 
 ---
 
@@ -795,6 +848,10 @@ Moodle-Datei-URLs aus der REST-API werden durch Anhängen von `?token=TOKEN` aut
 ### Batching
 
 `moodle_send_message_to_course` verarbeitet Empfänger in Batches à 50, da Moodle die Anzahl gleichzeitiger Nachrichten begrenzt.
+
+`moodle_grade_assignments_batch` nutzt `mod_assign_save_grades` – einen nativen Moodle-Webservice, der ein Array von Bewertungen in einem einzigen HTTP-Call speichert. Bei Fehler des Batch-Calls wird automatisch auf individuelle `mod_assign_save_grade`-Aufrufe zurückgefallen, um Teilerfolge zu ermitteln.
+
+`moodle_download_all_submissions` lädt alle Abgabedateien einer Aufgabe parallel (Node.js `Promise.all`). Die `userid` pro Datei bleibt als numerischer Schlüssel erhalten und wird nicht pseudonymisiert, sodass die Zuordnung `userid ↔ Datei-Bytes` eindeutig ist.
 
 ### Fehlerbehandlung
 

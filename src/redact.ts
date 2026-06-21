@@ -199,11 +199,27 @@ function buildPairs(): Pair[] {
   return pairs;
 }
 
-/** Ersetzt alle bekannten Klardaten in einem Text durch Pseudonyme. */
+// Erkennt http(s)://... URLs (bis zum ersten Whitespace/Anführungszeichen)
+const URL_RE = /https?:\/\/[^\s"'<>]+/g;
+
+/** Ersetzt alle bekannten Klardaten in einem Text durch Pseudonyme.
+ *  URLs werden vor der Redaktion geschützt und danach wiederhergestellt. */
 export function redactText(text: string): string {
   if (!REDACT_PII || !text) return text;
-  let out = text;
+
+  // URLs extrahieren und durch Platzhalter ersetzen
+  const urls: string[] = [];
+  const placeholder = "\x00URL\x00";
+  let out = text.replace(URL_RE, (match) => {
+    urls.push(match);
+    return `${placeholder}${urls.length - 1}\x00`;
+  });
+
+  // Redaktion nur auf URL-freien Text anwenden
   for (const pair of buildPairs()) out = out.replace(pair.re, pair.repl);
+
+  // URLs wiederherstellen
+  out = out.replace(new RegExp(`${placeholder}(\\d+)\x00`, "g"), (_, i) => urls[Number(i)]);
   return out;
 }
 
