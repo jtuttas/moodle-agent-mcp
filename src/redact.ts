@@ -317,6 +317,14 @@ export function rehydrateTextForField(
   return { text: out, replaced };
 }
 
+/** Gibt das Pseudonym für eine userid zurück; erstellt es bei Bedarf (stabil). */
+export function pseudonymForUser(uid: number | string): string {
+  if (!REDACT_PII) return String(uid);
+  const id = ensurePseudonym(uid);
+  persist();
+  return id.pseudonym;
+}
+
 /** Rueckweg-Rehydrierung: ersetzt Pseudonyme (S-000x) in AUSGEHENDEM Text
  *  (Nachrichten/Feedback an Moodle) durch den echten Namen. Laeuft nur lokal,
  *  BEVOR der Aufruf an Moodle geht - das Modell hat die Namen nie gesehen.

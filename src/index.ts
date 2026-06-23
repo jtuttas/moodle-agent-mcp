@@ -5,7 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { harvestIdentities, redactResult, resolveStudent, rehydrateText, REDACT_PII } from "./redact.js";
+import { harvestIdentities, redactResult, resolveStudent, rehydrateText, REDACT_PII, pseudonymForUser } from "./redact.js";
 import { rehydrateFile, RehydrateError } from "./rehydrate-file.js";
 
 const MOODLE_URL = (process.env.MOODLE_URL ?? "").replace(/\/$/, "");
@@ -581,6 +581,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["infile"],
+      },
+    },
+    {
+      name: "moodle_list_cohorts",
+      description:
+        "Listet alle site-weiten Kohorten (globale Gruppen) auf – inkl. Name, idnumber, Sichtbarkeit und optional Mitgliederliste (userid + Pseudonym). Erfordert die Webservice-Funktionen core_cohort_get_cohorts und core_cohort_get_cohort_members.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          include_members: {
+            type: "boolean",
+            description: "true = Mitgliederliste pro Kohorte laden (Standard: true). false = nur Metadaten, deutlich schneller bei vielen Kohorten.",
+          },
+          cohortids: {
+            type: "array",
+            items: { type: "number" },
+            description: "Nur diese Kohorten-IDs abfragen (optional; leer = alle site-weiten Kohorten).",
+          },
+        },
+        required: [],
       },
     },
   ],
@@ -1965,6 +1985,87 @@ const handleToolCall = async (request: {
           }
           throw e;
         }
+      }
+
+      // ------------------------------------------------------------------
+      case "moodle_list_cohorts": {
+        const includeMembers = args.include_members !== false; // Standard: true
+        const filterIds = (args.cohortids as number[] | undefined) ?? [];
+
+        // Alle Kohorten abrufen (gefiltert oder alle)
+        const cohortsRaw = (await moodleCall("core_cohort_get_cohorts", {
+          cohortids: filterIds,
+        })) as Array<{
+          id: number;
+          name: string;
+          idnumber: string;
+          contextid: number;
+          description: string;
+          visible: number;
+        }>;
+
+        type CohortResult = {
+          id: number;
+          name: string;
+          idnumber: string;
+          contextid: number;
+          description: string;
+          visible: boolean;
+          member_count?: number;
+          members?: Array<{ userid: number; pseudonym: string }>;
+        };
+
+        const cohorts: CohortResult[] = [];
+
+        for (const c of cohortsRaw) {
+          const entry: CohortResult = {
+            id: c.id,
+            name: c.name,
+            idnumber: c.idnumber ?? "",
+            contextid: c.contextid,
+            description: c.description?.replace(/<[^>]*>/g, "").trim() ?? "",
+            visible: c.visible === 1,
+          };
+
+          if (includeMembers) {
+            try {
+              const memberData = (await moodleCall("core_cohort_get_cohort_members", {
+                cohortids: [c.id],
+              })) as Array<{ cohortid: number; userids: number[] }>;
+              const userids = memberData[0]?.userids ?? [];
+              entry.member_count = userids.length;
+              entry.members = userids.map((uid) => ({
+                userid: uid,
+                pseudonym: pseudonymForUser(uid),
+              }));
+            } catch {
+              // Kohorte nicht zugänglich oder Funktion nicht im Service aktiviert
+              entry.member_count = 0;
+              entry.members = [];
+            }
+          }
+
+          cohorts.push(entry);
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  total_cohorts: cohorts.length,
+                  cohorts,
+                  ...(includeMembers
+                    ? {}
+                    : { note: "Mitglieder wurden nicht geladen (include_members=false)." }),
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
       }
 
       default:

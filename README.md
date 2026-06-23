@@ -98,6 +98,7 @@ Dem Service folgende Funktionen hinzufügen:
 | `core_message_get_conversation_messages` | Nachrichten einer Konversation lesen |
 | `core_cohort_search_cohorts` | Globale Kohorten durchsuchen |
 | `core_cohort_get_cohort_members` | Mitgliedschaft in Kohorten prüfen |
+| `core_cohort_get_cohorts` | Alle Kohorten site-weit auflisten (`moodle_list_cohorts`) |
 | `core_course_get_course_module` | cmid → courseid/assignid auflösen (`moodle_get_assignment_details`) |
 | `mod_assign_get_assignments` | Aufgaben-Details: Beschreibung, Fristen, Bewertungsinfos |
 
@@ -566,6 +567,41 @@ Gibt **keine Klarnamen** zurück – nur den technischen Schlüssel.
 ```
 query    (required)  Name, Namensteil, E-Mail oder Login
 courseid (optional)  Kurs-ID, um die Zuordnung vor der Auflösung zu befüllen
+```
+
+#### `moodle_list_cohorts`
+Listet alle site-weiten Kohorten (globale Gruppen) auf – inklusive optionaler Mitgliederliste.  
+Mitglieder werden **pseudonymisiert** zurückgegeben (userid + Pseudonym, kein Klarname).
+
+```
+include_members  (optional)  true = Mitgliederliste laden (Standard: true); false = nur Metadaten
+cohortids        (optional)  Array von Kohorten-IDs – ohne Angabe werden ALLE Kohorten abgerufen
+```
+
+**Voraussetzungen:** Die folgenden Funktionen müssen dem Webservice-Token zugeordnet sein:
+- `core_cohort_get_cohorts` (Kohortenmetadaten)
+- `core_cohort_get_cohort_members` (Mitgliederliste, nur bei `include_members=true`)
+
+**Beispiel-Rückgabe:**
+```json
+{
+  "total_cohorts": 2,
+  "cohorts": [
+    {
+      "id": 5,
+      "name": "FIAE24",
+      "idnumber": "fiae24",
+      "contextid": 1,
+      "description": "Fachinformatiker Anwendungsentwicklung Klasse 2024",
+      "visible": true,
+      "member_count": 22,
+      "members": [
+        { "userid": 42, "pseudonym": "S-0001" },
+        { "userid": 17, "pseudonym": "S-0002" }
+      ]
+    }
+  ]
+}
 ```
 
 #### `moodle_rehydrate_report`
