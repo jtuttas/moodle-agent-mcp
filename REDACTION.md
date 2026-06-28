@@ -86,14 +86,33 @@ Klarnamen jemals an das Modell übertragen werden. Das Tool:
    Header-/Footer-Parts, schreibt das ZIP zurück.
 4. Gibt **ausschließlich Metadaten** zurück – kein Klarname im Rückgabewert:
    ```json
-   { "ok": true, "datei": "bericht_klar.md",
+   { "ok": true, "datei": "bericht.klar.md",
      "pseudonyme_ersetzt": 3, "schueler": ["S-0001","S-0002","S-0003"],
-     "field": "fullname" }
+     "field": "fullname", "ausgabe_getrennt": true }
    ```
+
+### Getrennter Ausgabeordner (Datenschutz)
+
+Der Eingabeordner (`REHYDRATE_BASE_DIR`) muss für den MCP-Client (z. B. Claude
+CoWork) **beschreibbar** sein – nur so kann dieser die *pseudonymisierte* Vorlage
+dort ablegen. Die rehydrierte Ausgabe enthält jedoch **Klarnamen**: Läge sie im
+selben, für CoWork lesbaren Ordner, könnte das Modell sie zurücklesen, und der
+Datenschutzgewinn wäre dahin.
+
+Lösung: `REHYDRATE_OUT_DIR` auf einen **getrennten** Ordner setzen, auf den CoWork
+**keinen Lesezugriff** hat. Dann gilt:
+
+- Die Klartext-Ausgabe wird ausschließlich dorthin geschrieben
+  (Standard-Dateiname `<name>.klar.<ext>`), die pseudonymisierte Eingabe wird
+  **nie** überschrieben (`ausgabe_getrennt: true`).
+- Ist `REHYDRATE_OUT_DIR` nicht gesetzt und landet die Ausgabe im lesbaren
+  Eingabeordner, enthält das Ergebnis zusätzlich ein Feld `warnung` und
+  `ausgabe_getrennt: false`.
 
 ### Konfiguration
 
 | Variable             | Bedeutung                                                          |
 | -------------------- | ------------------------------------------------------------------ |
-| `REHYDRATE_BASE_DIR` | Basisordner für Berichtsdateien (Standard: `../MoodleTutor/Berichte`) |
+| `REHYDRATE_BASE_DIR` | Eingabe-Basisordner (pseudonymisierte Vorlage; Standard: `../MoodleTutor/Berichte`) |
+| `REHYDRATE_OUT_DIR`  | Optional: getrennter Ausgabeordner für die Klarnamen-Datei (für CoWork möglichst nicht lesbar) |
 | `PSEUDONYM_MAP`      | Pfad zur Zuordnungsdatei (wie bei der übrigen Redaktion)           |

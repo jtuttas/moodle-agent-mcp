@@ -562,7 +562,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "moodle_rehydrate_report",
       description:
-        "Rehydriert eine lokale Berichtsdatei: Pseudonyme (S-0001 …) werden durch echte Namen ersetzt, BEVOR die Datei gespeichert wird. Die Klarnamen verlassen dabei niemals den Server – der Rückgabewert enthält nur Metadaten (Anzahl ersetzter Pseudonyme, Pseudonym-Kürzel). Unterstützt .md, .txt und .docx. Dateipfade müssen innerhalb von REHYDRATE_BASE_DIR liegen.",
+        "Rehydriert eine lokale Berichtsdatei: Pseudonyme (S-0001 …) werden durch echte Namen ersetzt, BEVOR die Datei gespeichert wird. Die Klarnamen verlassen dabei niemals den Server – der Rückgabewert enthält nur Metadaten (Anzahl ersetzter Pseudonyme, Pseudonym-Kürzel). Unterstützt .md, .txt und .docx. Eingabepfade müssen innerhalb von REHYDRATE_BASE_DIR liegen. Ist REHYDRATE_OUT_DIR gesetzt, wird die Klartext-Ausgabe in diesen getrennten Ordner geschrieben (Eingabe wird nie überschrieben); sonst enthält das Ergebnis bei In-place- bzw. lesbarem Zielordner ein Feld 'warnung'.",
       inputSchema: {
         type: "object",
         properties: {
@@ -572,7 +572,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           outfile: {
             type: "string",
-            description: "Pfad zur Ausgabedatei (optional; Standard: in-place, überschreibt infile)",
+            description: "Pfad zur Ausgabedatei (optional). Mit REHYDRATE_OUT_DIR relativ zu diesem getrennten Ordner; ohne OUT_DIR relativ zu REHYDRATE_BASE_DIR (Standard: in-place, überschreibt infile – nur empfohlen, wenn der Ordner für CoWork NICHT lesbar ist).",
           },
           field: {
             type: "string",

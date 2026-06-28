@@ -124,7 +124,8 @@ Beide Clients benötigen dieselben zwei Variablen:
 | `MOODLE_TOKEN` | Web Services Token aus [Schritt 4](#4-token-erstellen) | `abc123def456...` |
 | `REDACT_PII` | `1` (Standard) = Pseudonymisierung aktiv; `0` = aus (nur Debugging) | `1` |
 | `PSEUDONYM_MAP` | Pfad zur vertraulichen Zuordnungsdatei (Standard: `pseudonym-map.json` im Projektstamm) | `/sicherer/pfad/map.json` |
-| `REHYDRATE_BASE_DIR` | Basisordner für `moodle_rehydrate_report` (Standard: `../MoodleTutor/Berichte`) | `/home/lehrer/Berichte` |
+| `REHYDRATE_BASE_DIR` | **Eingabe**-Basisordner für `moodle_rehydrate_report` (pseudonymisierte Vorlage; muss für CoWork beschreibbar sein) | `/home/lehrer/Berichte` |
+| `REHYDRATE_OUT_DIR` | Optionaler **getrennter Ausgabeordner** für die rehydrierte Klarnamen-Datei. Gesetzt → Ausgabe nur hierhin, Eingabe wird nie überschrieben. Sollte für CoWork **nicht** lesbar sein. | `/home/lehrer/Dokumente/Berichte-klar` |
 
 ---
 
@@ -611,7 +612,8 @@ Die Klarnamen verlassen dabei **niemals den Server** – der Rückgabewert enth�
 ```
 infile   (required)  Pfad zur Eingabedatei (relativ zu REHYDRATE_BASE_DIR oder absolut darin)
                      Unterstützte Formate: .md, .txt, .docx
-outfile  (optional)  Ausgabedatei (Standard: in-place, überschreibt infile)
+outfile  (optional)  Ausgabedatei. Mit REHYDRATE_OUT_DIR relativ zu diesem getrennten
+                     Ordner; ohne OUT_DIR relativ zu REHYDRATE_BASE_DIR (Standard: in-place)
 field    (optional)  Welches Klardaten-Feld einsetzen: fullname (Standard) | email | username
 ```
 
@@ -619,15 +621,26 @@ field    (optional)  Welches Klardaten-Feld einsetzen: fullname (Standard) | ema
 ```json
 {
   "ok": true,
-  "datei": "Klassenbericht_klar.md",
+  "datei": "Klassenbericht.klar.md",
   "pseudonyme_ersetzt": 3,
   "schueler": ["S-0001", "S-0002", "S-0003"],
-  "field": "fullname"
+  "field": "fullname",
+  "ausgabe_getrennt": true
 }
 ```
 
+Ist `REHYDRATE_OUT_DIR` **nicht** gesetzt und die Klartext-Ausgabe landet damit im
+(für CoWork lesbaren) Eingabeordner, enthält das Ergebnis zusätzlich ein Feld
+`"warnung"` mit einem Datenschutzhinweis und `"ausgabe_getrennt": false`.
+
 **Sicherheit:**
-- Pfad-Traversal (`..`) und absolute Pfade außerhalb von `REHYDRATE_BASE_DIR` werden abgewiesen.
+- Pfad-Traversal (`..`) und absolute Pfade außerhalb des erlaubten Ordners werden abgewiesen.
+- **Getrennter Ausgabeordner:** Der Eingabeordner (`REHYDRATE_BASE_DIR`) muss für den
+  MCP-Client (CoWork) beschreibbar sein, damit dort die *pseudonymisierte* Vorlage abgelegt
+  werden kann. Die rehydrierte Ausgabe enthält jedoch Klarnamen – läge sie im selben,
+  lesbaren Ordner, könnte das Modell sie zurücklesen. Mit `REHYDRATE_OUT_DIR` wird die
+  Klartext-Ausgabe in einen separaten, für CoWork idealerweise **nicht lesbaren** Ordner
+  geschrieben; die Eingabe wird dabei nie überschrieben.
 - `.docx`-Verarbeitung vollständig in Node.js via **JSZip**: öffnet das DOCX-ZIP, ersetzt Pseudonyme in `word/document.xml` sowie allen Header-/Footer-Parts, schreibt das ZIP zurück. Kein Python, keine externe Abhängigkeit.
 
 ---
@@ -849,7 +862,8 @@ Lokale Dateien (`.md`, `.txt`, `.docx`) können mit `moodle_rehydrate_report` re
 |---|---|---|
 | `REDACT_PII` | `1` | `0` = Redaktion deaktiviert (nur Debugging) |
 | `PSEUDONYM_MAP` | `pseudonym-map.json` | Pfad zur vertraulichen Zuordnungsdatei |
-| `REHYDRATE_BASE_DIR` | `../MoodleTutor/Berichte` | Erlaubter Ordner für Berichtsdateien |
+| `REHYDRATE_BASE_DIR` | `../MoodleTutor/Berichte` | Eingabeordner (pseudonymisierte Vorlage; für CoWork beschreibbar) |
+| `REHYDRATE_OUT_DIR` | _(nicht gesetzt)_ | Optional: getrennter Ausgabeordner für die Klarnamen-Datei (für CoWork möglichst nicht lesbar) |
 
 > Die Datei `pseudonym-map.json` ist durch `.gitignore` vom Commit ausgeschlossen und darf niemals an Modell, Client oder Cloud weitergegeben werden.
 

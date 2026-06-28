@@ -304,4 +304,46 @@ describe("rehydrate-file", () => {
     assert.ok(docXml.includes("Max Beispielmann"));
     assert.ok(!docXml.includes("S-0002"));
   });
+
+  test("8 – REHYDRATE_OUT_DIR: Ausgabe getrennt, Eingabe unverändert", async () => {
+    const { rehydrateFile } = await getModule();
+
+    const outDir = join(tmpBase, "klar-out");
+    const inName = "getrennt.md";
+    const inPath = join(tmpBase, inName);
+    writeFileSync(inPath, "Bericht: S-0001 und S-0002\n", "utf-8");
+
+    const savedOut = process.env.REHYDRATE_OUT_DIR;
+    process.env.REHYDRATE_OUT_DIR = outDir;
+    try {
+      // Kein outfile → Default-Name (.klar) im getrennten Ordner, In-place wird vermieden.
+      const result = await rehydrateFile(inName, undefined, "fullname");
+
+      assert.strictEqual(result.ok, true);
+      assert.strictEqual(result.ausgabe_getrennt, true);
+      assert.strictEqual(result.warnung, undefined);
+      assert.strictEqual(result.datei, "getrennt.klar.md");
+
+      // Eingabedatei bleibt pseudonymisiert (NICHT überschrieben)
+      const original = readFileSync(inPath, "utf-8");
+      assert.ok(original.includes("S-0001"), "Eingabe muss Pseudonyme behalten");
+      assert.ok(!original.includes("Erika Musterfrau"));
+
+      // Klartext liegt nur im getrennten Ausgabeordner
+      const written = readFileSync(join(outDir, "getrennt.klar.md"), "utf-8");
+      assert.ok(written.includes("Erika Musterfrau"));
+      assert.ok(!written.includes("S-0001"));
+    } finally {
+      if (savedOut === undefined) delete process.env.REHYDRATE_OUT_DIR;
+      else process.env.REHYDRATE_OUT_DIR = savedOut;
+    }
+  });
+
+  test("9 – ohne OUT_DIR bei In-place: Ergebnis enthält Warnung", async () => {
+    const { rehydrateFile } = await getModule();
+    writeFileSync(join(tmpBase, "warnung.md"), "S-0001 ok\n", "utf-8");
+    const result = await rehydrateFile("warnung.md", undefined, "fullname");
+    assert.strictEqual(result.ausgabe_getrennt, false);
+    assert.ok(result.warnung && result.warnung.includes("REHYDRATE_OUT_DIR"));
+  });
 });
