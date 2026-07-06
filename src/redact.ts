@@ -54,6 +54,16 @@ const store: MapFile = {
 
 let dirty = false;
 
+// Cache fuer den zusammengesetzten Redaktions-Matcher (siehe buildMatcher()).
+// Wird invalidiert, sobald sich der Store aendert – dadurch muss redactText die
+// (potenziell tausenden) Ersetzungsregeln nicht bei jedem Aufruf neu bauen.
+let cachedMatcher: { re: RegExp | null; map: Map<string, string> } | null = null;
+
+function markStoreDirty(): void {
+  dirty = true;
+  cachedMatcher = null;
+}
+
 function loadStore(): void {
   if (!existsSync(MAP_PATH)) return;
   try {
@@ -83,7 +93,7 @@ function ensurePseudonym(uid: number | string): Identity {
     store.counter += 1;
     id = { pseudonym: `S-${String(store.counter).padStart(4, "0")}` };
     store.users[key] = id;
-    dirty = true;
+    markStoreDirty();
   }
   return id;
 }
@@ -91,7 +101,7 @@ function ensurePseudonym(uid: number | string): Identity {
 function setIf(id: Identity, field: keyof Identity, value: unknown): void {
   if (typeof value === "string" && value.trim() && id[field] !== value) {
     id[field] = value;
-    dirty = true;
+    markStoreDirty();
   }
 }
 
@@ -165,13 +175,17 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-interface Pair {
-  re: RegExp;
-  repl: string;
-}
+/**
+ * Baut EINEN zusammengesetzten Matcher (ein Regex mit Alternation + Lookup-Map)
+ * statt tausender Einzel-Regexe. Dadurch ist redactText O(Textlänge) statt
+ * O(Nutzer × Textlänge). Ergebnis wird gecacht und nur bei Store-Änderung
+ * (markStoreDirty) neu gebaut.
+ */
+function buildMatcher(): { re: RegExp | null; map: Map<string, string> } {
+  if (cachedMatcher) return cachedMatcher;
 
-function buildPairs(): Pair[] {
-  const pairs: Pair[] = [];
+  const map = new Map<string, string>(); // lowercased Begriff -> Pseudonym
+  const terms: string[] = [];
   for (const id of Object.values(store.users)) {
     const ps = id.pseudonym;
     const exact: string[] = [];
@@ -183,20 +197,32 @@ function buildPairs(): Pair[] {
     if (id.firstname && id.firstname.length >= 3) exact.push(id.firstname);
     if (id.lastname && id.lastname.length >= 3) exact.push(id.lastname);
     for (const term of exact) {
-      // Wortgrenzen ueber Unicode-Buchstaben/Ziffern/Unterstrich; Satzzeichen
-      // (Punkt, Komma) zaehlen als Grenze, damit ein Name am Satzende erkannt
-      // wird. E-Mails matchen trotzdem als Ganzes, da der Begriff seine eigenen
-      // Punkte/@ als Literal enthaelt und laengere Begriffe zuerst ersetzt werden.
-      const re = new RegExp(
-        "(?<![\\p{L}\\p{N}_])" + escapeRe(term) + "(?![\\p{L}\\p{N}_])",
-        "giu"
-      );
-      pairs.push({ re, repl: ps });
+      const key = term.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, ps);
+        terms.push(term);
+      }
     }
   }
-  // Laengste Begriffe zuerst ersetzen ("Christian Ziegner" vor "Christian")
-  pairs.sort((a, b) => b.re.source.length - a.re.source.length);
-  return pairs;
+
+  // Laengste Begriffe zuerst -> die Alternation matcht "Christian Ziegner" vor
+  // "Christian". Ein einziger Regex ersetzt alle Begriffe in einem Durchlauf.
+  // Wortgrenzen ueber Unicode-Buchstaben/Ziffern/Unterstrich; Satzzeichen
+  // (Punkt, Komma) zaehlen als Grenze. E-Mails matchen als Ganzes, da ihre
+  // Punkte/@ als Literal escaped sind und der laengere Begriff zuerst greift.
+  terms.sort((a, b) => b.length - a.length);
+  const re =
+    terms.length === 0
+      ? null
+      : new RegExp(
+          "(?<![\\p{L}\\p{N}_])(" +
+            terms.map(escapeRe).join("|") +
+            ")(?![\\p{L}\\p{N}_])",
+          "giu"
+        );
+
+  cachedMatcher = { re, map };
+  return cachedMatcher;
 }
 
 // Erkennt http(s)://... URLs (bis zum ersten Whitespace/Anführungszeichen)
@@ -207,6 +233,9 @@ const URL_RE = /https?:\/\/[^\s"'<>]+/g;
 export function redactText(text: string): string {
   if (!REDACT_PII || !text) return text;
 
+  const matcher = buildMatcher();
+  if (!matcher.re) return text; // kein registrierter Nutzer -> nichts zu ersetzen
+
   // URLs extrahieren und durch Platzhalter ersetzen
   const urls: string[] = [];
   const placeholder = "\x00URL\x00";
@@ -215,8 +244,9 @@ export function redactText(text: string): string {
     return `${placeholder}${urls.length - 1}\x00`;
   });
 
-  // Redaktion nur auf URL-freien Text anwenden
-  for (const pair of buildPairs()) out = out.replace(pair.re, pair.repl);
+  // Redaktion in EINEM Durchlauf: der matchende Begriff (case-insensitiv) wird
+  // ueber die Map auf sein Pseudonym abgebildet.
+  out = out.replace(matcher.re, (m) => matcher.map.get(m.toLowerCase()) ?? m);
 
   // URLs wiederherstellen
   out = out.replace(new RegExp(`${placeholder}(\\d+)\x00`, "g"), (_, i) => urls[Number(i)]);
