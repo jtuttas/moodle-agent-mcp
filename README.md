@@ -122,6 +122,9 @@ Beide Clients benötigen dieselben zwei Variablen:
 |---|---|---|
 | `MOODLE_URL` | Basis-URL der Moodle-Instanz, **ohne** abschließenden `/` | `https://moodle.meineschule.de` |
 | `MOODLE_TOKEN` | Web Services Token aus [Schritt 4](#4-token-erstellen) | `abc123def456...` |
+| `MOODLE_REQUEST_TIMEOUT_MS` | Timeout je HTTP-Request in ms; danach Abbruch + Retry (Standard: `60000`) | `120000` |
+| `MOODLE_MAX_RETRIES` | Wiederholungen bei Timeout/Netzfehler/HTTP-5xx (Standard: `2`, also 3 Versuche) | `3` |
+| `MOODLE_ASSIGN_CACHE_TTL_MS` | Cache-Dauer für `mod_assign_get_assignments` pro Kurs in ms; `0` = aus (Standard: `60000`) | `60000` |
 | `REDACT_PII` | `1` (Standard) = Pseudonymisierung aktiv; `0` = aus (nur Debugging) | `1` |
 | `PSEUDONYM_MAP` | Pfad zur vertraulichen Zuordnungsdatei (Standard: `pseudonym-map.json` im Projektstamm) | `/sicherer/pfad/map.json` |
 | `REHYDRATE_BASE_DIR` | **Eingabe**-Basisordner für `moodle_rehydrate_report` (pseudonymisierte Vorlage; muss für CoWork beschreibbar sein) | `/home/lehrer/Berichte` |
@@ -354,6 +357,8 @@ cmid (required)  Course-Module-ID aus der Moodle-URL
 ```
 
 Intern werden automatisch `core_course_get_course_module` (cmid → courseid + assignid) und `mod_assign_get_assignments` kombiniert — keine manuelle Kurs-ID nötig.
+
+> **Performance:** `mod_assign_get_assignments` liefert **alle** Aufgaben des Kurses inkl. gerenderter Beschreibung (bei vielen/aufwändigen Intros mit LaTeX-Filtern teuer). Das Ergebnis wird daher pro Kurs kurz gecacht (`MOODLE_ASSIGN_CACHE_TTL_MS`, Standard 60 s) – wiederholte Abfragen verschiedener Aufgaben desselben Kurses treffen den Cache und vermeiden Timeouts. Mit `MOODLE_ASSIGN_CACHE_TTL_MS=0` immer frische Daten.
 
 ---
 
@@ -902,6 +907,16 @@ Moodle-Datei-URLs aus der REST-API werden durch Anhängen von `?token=TOKEN` aut
 `moodle_grade_assignments_batch` nutzt `mod_assign_save_grades` – einen nativen Moodle-Webservice, der ein Array von Bewertungen in einem einzigen HTTP-Call speichert. Bei Fehler des Batch-Calls wird automatisch auf individuelle `mod_assign_save_grade`-Aufrufe zurückgefallen, um Teilerfolge zu ermitteln.
 
 `moodle_download_all_submissions` lädt alle Abgabedateien einer Aufgabe parallel (Node.js `Promise.all`). Die `userid` pro Datei bleibt als numerischer Schlüssel erhalten und wird nicht pseudonymisiert, sodass die Zuordnung `userid ↔ Datei-Bytes` eindeutig ist.
+
+### Timeout, Retry & Cache
+
+Alle Moodle-Requests laufen über einen zentralen Helper mit robustem Verhalten:
+
+- **Hartes Timeout je Request** (`MOODLE_REQUEST_TIMEOUT_MS`, Standard 60 s) via `AbortController` – ein hängender Request wird abgebrochen, statt bis zum Client-Timeout zu warten.
+- **Automatischer Retry** (`MOODLE_MAX_RETRIES`, Standard 2) mit linearem Backoff (0,5 s / 1 s). Wiederholt werden nur **transiente** Fehler: Timeout, Netzfehler, HTTP-5xx. **Deterministische** Fehler (fachliche Moodle-Exceptions, HTTP-4xx) werden sofort geworfen – kein sinnloses Wiederholen.
+- **TTL-Cache** für `mod_assign_get_assignments` pro Kurs (`MOODLE_ASSIGN_CACHE_TTL_MS`, Standard 60 s), siehe [`moodle_get_assignment_details`](#moodle_get_assignment_details). Entschärft die häufigste Timeout-Quelle: der teure Whole-Course-Aufwand fällt nur beim ersten Zugriff an.
+
+> Voraussetzung: Node.js ≥ 18 (globales `fetch` + `AbortController`).
 
 ### Fehlerbehandlung
 

@@ -7,9 +7,19 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { harvestIdentities, redactResult, resolveStudent, rehydrateText, REDACT_PII, pseudonymForUser } from "./redact.js";
 import { rehydrateFile, RehydrateError } from "./rehydrate-file.js";
+import { mapEnrolledUser, EnrolledUser } from "./enrolled-users.js";
 
 const MOODLE_URL = (process.env.MOODLE_URL ?? "").replace(/\/$/, "");
 const MOODLE_TOKEN = process.env.MOODLE_TOKEN ?? "";
+
+// Timeout / Retry / Cache – alle per Env-Variable überschreibbar.
+// REQUEST_TIMEOUT_MS bricht einen hängenden Request ab (statt bis zum
+// Client-Timeout zu warten), damit ein Retry überhaupt greifen kann.
+const REQUEST_TIMEOUT_MS = Number(process.env.MOODLE_REQUEST_TIMEOUT_MS ?? 60000);
+const MAX_RETRIES = Number(process.env.MOODLE_MAX_RETRIES ?? 2);
+// mod_assign_get_assignments lädt ALLE Aufgaben eines Kurses und rendert jede
+// intro (LaTeX/Filter) – teuer. Ergebnis kurz pro Kurs cachen.
+const ASSIGN_CACHE_TTL_MS = Number(process.env.MOODLE_ASSIGN_CACHE_TTL_MS ?? 60000);
 
 // ---------------------------------------------------------------------------
 // Moodle REST API helper
@@ -42,6 +52,38 @@ function flattenParams(
   return result;
 }
 
+// Ein einzelner HTTP-Versuch mit hartem Timeout (AbortController).
+async function moodleFetchOnce(bodyStr: string): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${MOODLE_URL}/webservice/rest/server.php`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: bodyStr,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    if (data && typeof data === "object" && "exception" in data) {
+      const err = data as { errorcode?: string; message?: string };
+      // Fachlicher Moodle-Fehler ist deterministisch → nicht wiederholen.
+      const e = new Error(
+        `Moodle-Fehler [${err.errorcode ?? "?"}]: ${err.message ?? "Unbekannter Fehler"}`
+      );
+      (e as { nonRetryable?: boolean }).nonRetryable = true;
+      throw e;
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function moodleCall(
   wsfunction: string,
   params: Record<string, unknown> = {}
@@ -52,32 +94,55 @@ async function moodleCall(
     );
   }
 
-  const body = new URLSearchParams({
+  const bodyStr = new URLSearchParams({
     wstoken: MOODLE_TOKEN,
     wsfunction,
     moodlewsrestformat: "json",
     ...flattenParams(params),
-  });
+  }).toString();
 
-  const response = await fetch(`${MOODLE_URL}/webservice/rest/server.php`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const data = await moodleFetchOnce(bodyStr);
+      // Personen-Identitäten aus der Rohantwort lernen (für die Pseudonymisierung),
+      // bevor die Daten weiterverarbeitet und an das Modell zurückgegeben werden.
+      if (REDACT_PII) harvestIdentities(data);
+      return data;
+    } catch (e) {
+      lastErr = e;
+      // Fachliche Moodle-Fehler und HTTP-4xx sind deterministisch → sofort werfen.
+      // Timeout (AbortError), Netzfehler und HTTP-5xx sind transient → erneut versuchen.
+      const nonRetryable =
+        (e as { nonRetryable?: boolean })?.nonRetryable === true ||
+        (e instanceof Error && /^HTTP 4\d\d/.test(e.message));
+      if (nonRetryable || attempt >= MAX_RETRIES) {
+        throw e;
+      }
+      // kleiner linearer Backoff vor dem nächsten Versuch
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
   }
+  throw lastErr ?? new Error("moodleCall: unerwarteter Zustand");
+}
 
-  const data = await response.json();
-  if (data && typeof data === "object" && "exception" in data) {
-    const err = data as { errorcode?: string; message?: string };
-    throw new Error(`Moodle-Fehler [${err.errorcode ?? "?"}]: ${err.message ?? "Unbekannter Fehler"}`);
-  }
-  // Personen-Identitäten aus der Rohantwort lernen (für die Pseudonymisierung),
-  // bevor die Daten weiterverarbeitet und an das Modell zurückgegeben werden.
-  if (REDACT_PII) harvestIdentities(data);
-  return data;
+// TTL-Cache für teure, lesende Aufrufe (z. B. mod_assign_get_assignments pro Kurs).
+type CacheEntry = { value: unknown; expires: number };
+const wsCache = new Map<string, CacheEntry>();
+
+async function moodleCallCached(
+  wsfunction: string,
+  params: Record<string, unknown>,
+  ttlMs: number
+): Promise<unknown> {
+  if (ttlMs <= 0) return moodleCall(wsfunction, params);
+  const key = `${wsfunction}:${JSON.stringify(params)}`;
+  const now = Date.now();
+  const hit = wsCache.get(key);
+  if (hit && hit.expires > now) return hit.value;
+  const value = await moodleCall(wsfunction, params);
+  wsCache.set(key, { value, expires: now + ttlMs });
+  return value;
 }
 
 // ---------------------------------------------------------------------------
@@ -825,17 +890,11 @@ const handleToolCall = async (request: {
       case "moodle_get_enrolled_students": {
         const data = (await moodleCall("core_enrol_get_enrolled_users", {
           courseid: args.courseid,
-        })) as Array<Record<string, unknown>>;
+        })) as EnrolledUser[];
 
-        const students = data.map((u) => ({
-          id: u.id,
-          username: u.username,
-          fullname: u.fullname,
-          email: u.email,
-          roles: Array.isArray(u.roles)
-            ? (u.roles as Array<{ shortname: string }>).map((r) => r.shortname)
-            : [],
-        }));
+        // Rollen 1:1 aus roles[].shortname pro Nutzer (keine Heuristik). Siehe
+        // enrolled-users.ts zur Kontext-Semantik von core_enrol_get_enrolled_users.
+        const students = data.map(mapEnrolledUser);
 
         return { content: [{ type: "text", text: JSON.stringify(students, null, 2) }] };
       }
@@ -1365,10 +1424,15 @@ const handleToolCall = async (request: {
           throw new Error(`cmid ${args.cmid} ist kein assign-Modul (${cm.cm.modname}).`);
         }
 
-        // Schritt 2: Aufgaben-Details laden und auf diese Aufgabe filtern
-        const raw = (await moodleCall("mod_assign_get_assignments", {
-          courseids: [cm.cm.course],
-        })) as { courses: Array<{ assignments: Array<Record<string, unknown>> }> };
+        // Schritt 2: Aufgaben-Details laden und auf diese Aufgabe filtern.
+        // Gecacht pro Kurs, da mod_assign_get_assignments ALLE Aufgaben des Kurses
+        // inkl. gerenderter intro zurückgibt (teuer) – wiederholte Abfragen
+        // verschiedener Aufgaben desselben Kurses treffen so den Cache.
+        const raw = (await moodleCallCached(
+          "mod_assign_get_assignments",
+          { courseids: [cm.cm.course] },
+          ASSIGN_CACHE_TTL_MS
+        )) as { courses: Array<{ assignments: Array<Record<string, unknown>> }> };
 
         const allAssignments = raw.courses.flatMap((c) => c.assignments);
         const assignment = allAssignments.find((a) => Number(a.id) === cm.cm.instance);
