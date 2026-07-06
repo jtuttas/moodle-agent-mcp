@@ -1412,8 +1412,21 @@ const handleToolCall = async (request: {
 
       // ------------------------------------------------------------------
       case "moodle_get_course_modules": {
+        // Filterung an Moodle delegieren: core_course_get_contents rendert sonst
+        // ALLE Module inkl. Datei-/Inhaltslisten des gesamten Kurses – bei großen
+        // Kursen so langsam, dass der MCP-Client vorher mit -32001 abbricht.
+        // - excludecontents=1: keine (ungenutzten) Modul-Inhalte/Dateien laden
+        // - modname=<typ>: serverseitig auf den gewünschten Modultyp beschränken
+        const options: Array<{ name: string; value: string | number }> = [
+          { name: "excludecontents", value: 1 },
+        ];
+        if (args.modtype) {
+          options.push({ name: "modname", value: String(args.modtype) });
+        }
+
         const data = (await moodleCall("core_course_get_contents", {
           courseid: args.courseid,
+          options,
         })) as Array<{
           section: number;
           name: string;
