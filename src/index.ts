@@ -7,6 +7,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { harvestIdentities, redactResult, resolveStudent, rehydrateText, REDACT_PII, pseudonymForUser } from "./redact.js";
 import { rehydrateFile, RehydrateError } from "./rehydrate-file.js";
+import { extractDocxText, extractXlsxText } from "./office-extract.js";
 import { mapEnrolledUser, EnrolledUser } from "./enrolled-users.js";
 
 const MOODLE_URL = (process.env.MOODLE_URL ?? "").replace(/\/$/, "");
@@ -499,7 +500,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "moodle_download_submission_file",
       description:
-        "Lädt eine Datei aus einer Moodle-Abgabe herunter. Text/Code-Dateien werden als lesbarer Text zurückgegeben, Bilder als Bilddaten, PDFs als Base64. Die fileurl kommt aus moodle_get_submission_content.",
+        "Lädt eine Datei aus einer Moodle-Abgabe herunter. Text/Code-Dateien werden als lesbarer Text zurückgegeben, Word (.docx) und Excel (.xlsx) als extrahierter Text, Bilder als Bilddaten, PDFs als Base64. Die fileurl kommt aus moodle_get_submission_content.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1251,13 +1252,43 @@ const handleToolCall = async (request: {
                   error: `HTTP ${resp.status}`,
                 };
               }
-              const buffer = await resp.arrayBuffer();
+              const buffer = Buffer.from(await resp.arrayBuffer());
+              const ext = entry.filename.split(".").pop()?.toLowerCase() ?? "";
+
+              // Word/Excel: Text extrahieren statt nur Base64 zu liefern.
+              const docxMime =
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+              const xlsxMime =
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+              if (entry.mimetype === docxMime || ext === "docx") {
+                const extracted_text = await extractDocxText(buffer);
+                return {
+                  userid: entry.userid,
+                  filename: entry.filename,
+                  mimetype: entry.mimetype,
+                  size_bytes: buffer.byteLength,
+                  extracted_text,
+                  ok: true,
+                };
+              }
+              if (entry.mimetype === xlsxMime || ext === "xlsx") {
+                const extracted_text = await extractXlsxText(buffer);
+                return {
+                  userid: entry.userid,
+                  filename: entry.filename,
+                  mimetype: entry.mimetype,
+                  size_bytes: buffer.byteLength,
+                  extracted_text,
+                  ok: true,
+                };
+              }
+
               return {
                 userid: entry.userid,
                 filename: entry.filename,
                 mimetype: entry.mimetype,
                 size_bytes: buffer.byteLength,
-                data_base64: Buffer.from(buffer).toString("base64"),
+                data_base64: buffer.toString("base64"),
                 ok: true,
                 // TODO: PDF→PNG via pdftoppm (~100 dpi) – requires system dependency
               };
@@ -1679,6 +1710,50 @@ const handleToolCall = async (request: {
               },
             ],
           };
+        }
+
+        // --- Office-Dokumente (Word / Excel): Text extrahieren ---
+        const docxMime =
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        const xlsxMime =
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+        if (mimeBase === docxMime || ext === "docx") {
+          const buffer = Buffer.from(await response.arrayBuffer());
+          try {
+            const text = await extractDocxText(buffer);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `=== ${filename} (Word-Dokument, ${text.length} Zeichen extrahiert) ===\n\n${text}`,
+                },
+              ],
+            };
+          } catch (e) {
+            throw new Error(
+              `Word-Datei ${filename} konnte nicht gelesen werden: ${(e as Error).message}`
+            );
+          }
+        }
+
+        if (mimeBase === xlsxMime || ext === "xlsx") {
+          const buffer = Buffer.from(await response.arrayBuffer());
+          try {
+            const text = await extractXlsxText(buffer);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `=== ${filename} (Excel-Tabelle, ${text.length} Zeichen extrahiert) ===\n\n${text}`,
+                },
+              ],
+            };
+          } catch (e) {
+            throw new Error(
+              `Excel-Datei ${filename} konnte nicht gelesen werden: ${(e as Error).message}`
+            );
+          }
         }
 
         // --- Sonstige Binärdateien ---
