@@ -1,0 +1,193 @@
+{
+  "manifest_version": "0.3",
+  "name": "moodle-agent-mcp",
+  "display_name": "Moodle Agent (Abgaben, Noten, Nachrichten)",
+  "version": "1.0.0",
+  "description": "Moodle-Monitoring für Lehrkräfte: Abgaben lesen und benoten, Quiz-Ergebnisse, Nachrichten – mit Pseudonymisierung personenbezogener Daten.",
+  "long_description": "Verbindet Claude mit der Moodle-Webservice-API. Klarnamen, E-Mails und Logins werden vor der Übergabe an das Modell durch stabile Pseudonyme (S-0001 …) ersetzt. Die Zuordnungsdatei bleibt lokal auf dem Rechner und darf nicht weitergegeben werden.",
+  "author": {
+    "name": "Dr. Jörg Tuttas",
+    "email": "tuttas@mmbbs.de",
+    "url": "https://github.com/jtuttas"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jtuttas/moodle-agent-mcp"
+  },
+  "homepage": "https://github.com/jtuttas/moodle-agent-mcp",
+  "keywords": [
+    "moodle",
+    "lms",
+    "schule",
+    "bewertung",
+    "datenschutz"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/dist/index.js"
+      ],
+      "env": {
+        "MOODLE_URL": "${user_config.moodle_url}",
+        "MOODLE_TOKEN": "${user_config.moodle_token}",
+        "REDACT_PII": "${user_config.redact_pii}",
+        "PSEUDONYM_MAP": "${user_config.pseudonym_map}",
+        "REHYDRATE_BASE_DIR": "${user_config.rehydrate_base_dir}",
+        "REHYDRATE_OUT_DIR": "${user_config.rehydrate_out_dir}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "moodle_get_user_groups",
+      "description": "Gibt alle Gruppen zurück, in denen ein Nutzer Mitglied ist – kursübergreifend (Kurs-Gruppen) und global (Kohorten/System-Gruppen). Kurs-Gruppen werden aus …"
+    },
+    {
+      "name": "moodle_get_course_info",
+      "description": "Gibt Metadaten eines oder mehrerer Kurse zurück: Titel, Kurztitel, Beschreibung, Kategorie, Start-/Enddatum, Sichtbarkeit, Format und Anzahl Abschnitte. Ideal …"
+    },
+    {
+      "name": "moodle_get_enrolled_students",
+      "description": "Gibt alle im Kurs eingeschriebenen Nutzer zurück (id, Name, E-Mail, Rollen). Nützlich um userids für andere Tools zu ermitteln."
+    },
+    {
+      "name": "moodle_get_activity_completion",
+      "description": "Gibt den Aktivitätsabschluss-Status für einen Kurs zurück. Zeigt welche Aktivitäten ein Schüler abgeschlossen hat. Ohne userid werden ALLE eingeschriebenen …"
+    },
+    {
+      "name": "moodle_get_assignment_submissions",
+      "description": "Gibt alle Abgaben zu einer oder mehreren Moodle-Aufgaben (mod_assign) zurück inkl. Status, Abgabedatum und Dateiinfos. Pro Abgabe werden zusätzlich 'grade' …"
+    },
+    {
+      "name": "moodle_get_submission_details",
+      "description": "Gibt die vollständige Abgabe eines Schülers für eine Aufgabe zurück, inkl. vorhandener Bewertung und Feedback."
+    },
+    {
+      "name": "moodle_grade_assignment",
+      "description": "Benotet eine Aufgaben-Abgabe und speichert schriftliches Feedback. Die Note muss zur Bewertungsskala der Aufgabe passen (z.B. 0–100)."
+    },
+    {
+      "name": "moodle_grade_assignments_batch",
+      "description": "Benotet mehrere Abgaben einer Aufgabe in einem einzigen Moodle-Call (mod_assign_save_grades). Deutlich schneller als wiederholtes moodle_grade_assignment für …"
+    },
+    {
+      "name": "moodle_download_all_submissions",
+      "description": "Lädt alle Abgabe-Dateien einer Aufgabe in einem parallelen Batch herunter. Gibt pro Schüler-Datei { userid, filename, mimetype, size_bytes, data_base64 } …"
+    },
+    {
+      "name": "moodle_get_quiz_results",
+      "description": "Gibt Quiz-Ergebnisse zurück. Mit userid = Versuche eines Schülers; mit courseid (ohne userid) = beste Note aller Schüler im Kurs."
+    },
+    {
+      "name": "moodle_get_course_grades",
+      "description": "Gibt alle Noten eines Kurses aus dem Bewertungsbuch zurück. Optional für einen einzelnen Schüler, sonst für alle."
+    },
+    {
+      "name": "moodle_get_course_modules",
+      "description": "Gibt alle Kursaktivitäten und -materialien mit cmid, instance-ID, Typ (assign, quiz, page, …) und Abschlusskonfiguration zurück."
+    },
+    {
+      "name": "moodle_get_assignment_details",
+      "description": "Liest Aufgaben-Details (Beschreibung/Intro, Abgabefrist, Bewertungsinfos) anhand der cmid – das ist die 'id' aus der Moodle-URL (z.B. view.php?id=9683)."
+    },
+    {
+      "name": "moodle_get_assignment_feedback",
+      "description": "Liest das vorhandene Feedback und die Bewertung für eine Aufgabe eines Schülers aus."
+    },
+    {
+      "name": "moodle_send_message",
+      "description": "Sendet eine direkte Moodle-Mitteilung (Nachricht) an einen oder mehrere Schüler. Die Nachricht erscheint im Moodle-Postfach des Schülers."
+    },
+    {
+      "name": "moodle_send_message_to_course",
+      "description": "Sendet eine direkte Moodle-Mitteilung an ALLE eingeschriebenen Schüler eines Kurses."
+    },
+    {
+      "name": "moodle_get_submission_content",
+      "description": "Liest den vollständigen Inhalt einer Schülerabgabe: Inline-Text (Online-Texteingabe) wird direkt zurückgegeben; hochgeladene Dateien werden mit …"
+    },
+    {
+      "name": "moodle_download_submission_file",
+      "description": "Lädt eine Datei aus einer Moodle-Abgabe herunter. Text/Code-Dateien werden als lesbarer Text zurückgegeben, Word (.docx) und Excel (.xlsx) als extrahierter …"
+    },
+    {
+      "name": "moodle_get_messages",
+      "description": "Liest Nachrichten aus dem Moodle-Posteingang oder -Ausgang eines Nutzers. Gibt Absender, Empfänger, Text und Zeitstempel zurück. Ideal um Schülerantworten auf …"
+    },
+    {
+      "name": "moodle_get_conversations",
+      "description": "Listet alle Konversationen (Chat-Verläufe) eines Moodle-Nutzers auf, mit letzter Nachricht, Gesprächspartner und Anzahl ungelesener Nachrichten."
+    },
+    {
+      "name": "moodle_get_conversation_with_user",
+      "description": "Liest den kompletten Nachrichtenverlauf zwischen zwei Nutzern (z.B. Lehrer und Schüler). Gibt alle Nachrichten chronologisch zurück."
+    },
+    {
+      "name": "moodle_resolve_student",
+      "description": "Loest einen vom Nutzer genannten Schueler (Name, Namensteil, E-Mail oder Login) LOKAL zu userid + Pseudonym auf. Nutzt die vertrauliche lokale Zuordnung und …"
+    },
+    {
+      "name": "moodle_rehydrate_report",
+      "description": "Rehydriert eine lokale Berichtsdatei: Pseudonyme (S-0001 …) werden durch echte Namen ersetzt, BEVOR die Datei gespeichert wird. Die Klarnamen verlassen dabei …"
+    },
+    {
+      "name": "moodle_list_cohorts",
+      "description": "Listet alle site-weiten Kohorten (globale Gruppen) auf – inkl. Name, idnumber, Sichtbarkeit und optional Mitgliederliste (userid + Pseudonym). Erfordert die …"
+    }
+  ],
+  "tools_generated": false,
+  "user_config": {
+    "moodle_url": {
+      "type": "string",
+      "title": "Moodle-URL",
+      "description": "Basis-URL des Moodle, z. B. https://moodle.meineschule.de",
+      "required": true
+    },
+    "moodle_token": {
+      "type": "string",
+      "title": "API-Token",
+      "description": "Moodle-Webservice-Token",
+      "sensitive": true,
+      "required": true
+    },
+    "redact_pii": {
+      "type": "boolean",
+      "title": "Pseudonymisierung aktiv",
+      "description": "Klarnamen, E-Mails und Logins vor der Übergabe an Claude durch Pseudonyme ersetzen (dringend empfohlen)",
+      "default": true,
+      "required": false
+    },
+    "pseudonym_map": {
+      "type": "string",
+      "title": "Zuordnungsdatei (Pseudonym ↔ Klarname)",
+      "description": "Vertrauliche lokale Datei; liegt außerhalb der Erweiterung, damit sie Updates übersteht",
+      "default": "${HOME}/MoodleAgent/pseudonym-map.json",
+      "required": false
+    },
+    "rehydrate_base_dir": {
+      "type": "directory",
+      "title": "Berichte-Eingabeordner",
+      "description": "Ordner mit pseudonymisierten Berichten für moodle_rehydrate_report",
+      "required": false
+    },
+    "rehydrate_out_dir": {
+      "type": "directory",
+      "title": "Berichte-Ausgabeordner (Klarnamen)",
+      "description": "Getrennter Ordner für die Datei mit Klarnamen – idealerweise für Claude nicht lesbar",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "win32",
+      "darwin",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

@@ -17,7 +17,7 @@
 // Steuerung über Umgebungsvariable:  REDACT_PII=0  schaltet die Redaktion ab.
 // ---------------------------------------------------------------------------
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -27,8 +27,9 @@ export const REDACT_PII =
   (process.env.REDACT_PII ?? "1") !== "0" &&
   (process.env.REDACT_PII ?? "1").toLowerCase() !== "false";
 
+// Leerer Wert (z. B. aus einer MCPB-Benutzereinstellung) gilt als nicht gesetzt.
 const MAP_PATH =
-  process.env.PSEUDONYM_MAP ?? join(HERE, "..", "pseudonym-map.json");
+  process.env.PSEUDONYM_MAP?.trim() || join(HERE, "..", "pseudonym-map.json");
 
 interface Identity {
   pseudonym: string;
@@ -79,6 +80,7 @@ loadStore();
 function persist(): void {
   if (!dirty) return;
   try {
+    mkdirSync(dirname(MAP_PATH), { recursive: true });
     writeFileSync(MAP_PATH, JSON.stringify(store, null, 2), "utf-8");
     dirty = false;
   } catch {

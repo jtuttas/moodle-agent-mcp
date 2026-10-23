@@ -19,7 +19,7 @@ const PROJECT_ROOT = join(HERE, "..");
 /** Gibt den konfigurierbaren Eingabe-Basisordner zurück (lazy, damit Tests den Env-Wert setzen können). */
 export function getRehydrateBaseDir(): string {
   return resolve(
-    process.env.REHYDRATE_BASE_DIR ??
+    process.env.REHYDRATE_BASE_DIR?.trim() ||
       join(PROJECT_ROOT, "..", "MoodleTutor", "Berichte")
   );
 }
