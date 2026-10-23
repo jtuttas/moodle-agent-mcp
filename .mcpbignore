@@ -1,0 +1,13 @@
+# Ins MCPB-Paket gehören nur dist/, node_modules/ (Produktion), package.json, manifest.json, LICENSE
+.git/
+.github/
+src/
+docs/
+dist/test/
+*.md
+.env
+.env.*
+tsconfig.json
+package-lock.json
+pseudonym-map.json
+*.mcpb

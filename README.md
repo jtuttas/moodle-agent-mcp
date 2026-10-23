@@ -179,6 +179,21 @@ claude mcp list
 
 ### Claude Desktop
 
+#### Ein-Klick-Installation per MCPB (empfohlen)
+
+1. [`moodle-agent-mcp.mcpb` herunterladen](https://github.com/jtuttas/moodle-agent-mcp/releases/latest/download/moodle-agent-mcp.mcpb)
+2. Datei doppelklicken oder in Claude Desktop unter **Einstellungen → Erweiterungen** hineinziehen
+3. **Moodle-URL** und **API-Token** eintragen; optional die Berichte-Ordner für `moodle_rehydrate_report` wählen
+
+Node.js muss dafür nicht installiert sein. Der Token landet im Schlüsselbund des Betriebssystems.
+Die Pseudonym-Zuordnung liegt standardmäßig unter `~/MoodleAgent/pseudonym-map.json`
+(außerhalb der Erweiterung, damit sie Updates übersteht) – diese Datei nicht weitergeben.
+
+**Neues Release bauen:** `git tag v1.0.1 && git push origin v1.0.1` (kleines `v`!). Der Workflow
+baut und testet das Paket und hängt `moodle-agent-mcp.mcpb` an das Release.
+
+#### Manuelle Einrichtung
+
 Claude Desktop liest seine MCP-Konfiguration aus einer JSON-Datei. Diese muss manuell bearbeitet werden.
 
 #### Konfigurationsdatei öffnen

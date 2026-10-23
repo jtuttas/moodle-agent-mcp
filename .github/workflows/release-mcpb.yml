@@ -1,0 +1,63 @@
+name: MCPB-Paket bauen
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Version aus Tag übernehmen
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" '.version = $v' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+
+      - name: Bauen und testen
+        run: |
+          npm ci
+          npm test
+
+      - name: Nur Produktionsabhängigkeiten behalten
+        run: npm prune --omit=dev
+
+      - name: Manifest prüfen und Paket bauen
+        run: |
+          npx -y @anthropic-ai/mcpb validate manifest.json
+          npx -y @anthropic-ai/mcpb pack . moodle-agent-mcp.mcpb
+
+      - name: Server-Smoke-Test (tools/list)
+        run: |
+          mkdir t && cd t && unzip -q ../moodle-agent-mcp.mcpb
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+          | MOODLE_URL=https://example.invalid MOODLE_TOKEN=x PSEUDONYM_MAP="$RUNNER_TEMP/map.json" timeout 10 node dist/index.js \
+          | grep -q '"moodle_get_course_info"'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moodle-agent-mcp.mcpb
+          path: moodle-agent-mcp.mcpb
+
+      - name: An Release anhängen
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" moodle-agent-mcp.mcpb --clobber
