@@ -75,7 +75,7 @@
     },
     {
       "name": "moodle_download_all_submissions",
-      "description": "Lädt alle Abgabe-Dateien einer Aufgabe in einem parallelen Batch herunter. Gibt pro Schüler-Datei { userid, filename, mimetype, size_bytes, data_base64 } …"
+      "description": "Lädt alle Abgabe-Dateien einer Aufgabe parallel und gibt pro Schüler-Datei extrahierten Text (Text/Code, Word, Excel, PDF) bzw. Metadaten zurück, größenbegrenzt."
     },
     {
       "name": "moodle_get_quiz_results",
@@ -107,11 +107,11 @@
     },
     {
       "name": "moodle_get_submission_content",
-      "description": "Liest den vollständigen Inhalt einer Schülerabgabe: Inline-Text (Online-Texteingabe) wird direkt zurückgegeben; hochgeladene Dateien werden mit …"
+      "description": "Liest den vollständigen Inhalt einer Schülerabgabe: Inline-Text wird direkt zurückgegeben; hochgeladene Dateien werden mit ihrer fileurl gelistet."
     },
     {
       "name": "moodle_download_submission_file",
-      "description": "Lädt eine Datei aus einer Moodle-Abgabe herunter. Text/Code-Dateien werden als lesbarer Text zurückgegeben, Word (.docx) und Excel (.xlsx) als extrahierter …"
+      "description": "Lädt eine Datei aus einer Moodle-Abgabe herunter: Text/Code, Word, Excel und PDF als extrahierter Text, Bilder als Bilddaten."
     },
     {
       "name": "moodle_get_messages",
