@@ -125,6 +125,8 @@ Beide Clients benötigen dieselben zwei Variablen:
 | `MOODLE_REQUEST_TIMEOUT_MS` | Timeout je HTTP-Request in ms; danach Abbruch + Retry (Standard: `60000`) | `120000` |
 | `MOODLE_MAX_RETRIES` | Wiederholungen bei Timeout/Netzfehler/HTTP-5xx (Standard: `2`, also 3 Versuche) | `3` |
 | `MOODLE_ASSIGN_CACHE_TTL_MS` | Cache-Dauer für `mod_assign_get_assignments` pro Kurs in ms; `0` = aus (Standard: `60000`) | `60000` |
+| `MOODLE_MAX_FILE_TEXT_CHARS` | Max. extrahierter Text pro Datei in Zeichen (Standard: `30000`) | `30000` |
+| `MOODLE_MAX_BATCH_TEXT_CHARS` | Max. Text gesamt in `moodle_download_all_submissions` (Standard: `80000`) | `80000` |
 | `REDACT_PII` | `1` (Standard) = Pseudonymisierung aktiv; `0` = aus (nur Debugging) | `1` |
 | `PSEUDONYM_MAP` | Pfad zur vertraulichen Zuordnungsdatei (Standard: `pseudonym-map.json` im Projektstamm) | `/sicherer/pfad/map.json` |
 | `REHYDRATE_BASE_DIR` | **Eingabe**-Basisordner für `moodle_rehydrate_report` (pseudonymisierte Vorlage; muss für CoWork beschreibbar sein) | `/home/lehrer/Berichte` |
@@ -425,8 +427,11 @@ Lädt eine Abgabedatei herunter und gibt den Inhalt zurück:
 |---|---|
 | Text / Code (`.py`, `.js`, `.html`, `.txt`, `.csv`, …) | Lesbarer Textinhalt |
 | Bilder (`.jpg`, `.png`, `.webp`, …) | Bild-Daten (direkt für Claude lesbar) |
-| PDFs | Base64-kodiert (Claude kann es lesen) |
-| Word / Excel | Download-URL (manuelles Öffnen erforderlich) |
+| PDFs | Extrahierter Text, seitenweise (gescannte PDFs ohne Textebene liefern keinen Text) |
+| Word / Excel | Extrahierter Text |
+| Sonstige Binärdateien | Nur Metadaten (keine URL mit Token) |
+
+Textausgaben werden auf `MOODLE_MAX_FILE_TEXT_CHARS` Zeichen gekürzt (Standard 30 000). Die `fileurl` muss zur konfigurierten `MOODLE_URL` gehören, sonst wird der Download abgelehnt – der Token geht nie an fremde Hosts.
 
 ```
 fileurl  (required)  URL aus moodle_get_submission_content
@@ -478,11 +483,11 @@ assignid (required)  Aufgaben-ID
 status   (optional)  Filter: 'submitted' (Standard) | '' | 'draft' | 'reopened'
 ```
 
-Rückgabe: `{ summary: "23/25 Dateien geladen", files: [{ userid, filename, mimetype, size_bytes, data_base64, ok }, …] }`
+Rückgabe: `{ summary: "23/25 Dateien verarbeitet", files: [{ userid, filename, mimetype, size_bytes, fileurl, extracted_text?, truncated?, skipped?, note?, ok }, …] }`
 
-Die `userid` ist ein numerischer Schlüssel und wird nicht pseudonymisiert – die Zuordnung `userid ↔ Datei-Bytes` ist eindeutig und korrumpiert-frei.
+Es wird **kein Base64** zurückgegeben. Text, Code, Word, Excel und PDF kommen als `extracted_text`. Bilder und andere Binärdateien werden nicht geladen, sondern nur mit Metadaten gelistet; Claude lädt sie bei Bedarf einzeln über `moodle_download_submission_file`. Die Antwort ist größenbegrenzt: pro Datei `MOODLE_MAX_FILE_TEXT_CHARS` (Standard 30 000), insgesamt `MOODLE_MAX_BATCH_TEXT_CHARS` (Standard 80 000 Zeichen ≈ 20 000 Tokens). Gekürzte Dateien tragen `truncated: true`, Dateien jenseits des Gesamtlimits `skipped: true`.
 
-> **TODO:** PDF → PNG-Konvertierung via `pdftoppm` (~100 dpi) ist noch nicht implementiert (erfordert System-Dependency). Die rohen PDF-Bytes werden als Base64 zurückgegeben.
+Die `userid` ist ein numerischer Schlüssel und wird nicht pseudonymisiert – die Zuordnung `userid ↔ Datei` ist eindeutig und korrumpiert-frei.
 
 #### `moodle_get_assignment_feedback`
 Liest vorhandenes Feedback und Note für eine Abgabe aus.
@@ -912,8 +917,10 @@ Moodle-Datei-URLs aus der REST-API werden durch Anhängen von `?token=TOKEN` aut
 
 - **Text/Code** → direkt als UTF-8-String
 - **Bilder** → Base64 (MCP `image`-Content-Type, Claude kann sie sehen)
-- **PDFs** → Base64 als Text (Claude kann PDFs lesen)
-- **Sonstige Binärdateien** → Nur Metadaten + Download-URL
+- **PDFs, Word, Excel** → extrahierter Text
+- **Sonstige Binärdateien** → nur Metadaten
+
+Der Token wird nur serverseitig angehängt und erscheint nie in einer Tool-Antwort.
 
 ### Batching
 

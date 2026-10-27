@@ -7,7 +7,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { harvestIdentities, redactResult, resolveStudent, rehydrateText, REDACT_PII, pseudonymForUser } from "./redact.js";
 import { rehydrateFile, RehydrateError } from "./rehydrate-file.js";
-import { extractDocxText, extractXlsxText } from "./office-extract.js";
+import { extractKind, extractByKind, extractPdfText, capText, IMAGE_MIMES } from "./file-extract.js";
 import { mapEnrolledUser, EnrolledUser } from "./enrolled-users.js";
 
 const MOODLE_URL = (process.env.MOODLE_URL ?? "").replace(/\/$/, "");
@@ -21,6 +21,11 @@ const MAX_RETRIES = Number(process.env.MOODLE_MAX_RETRIES ?? 2);
 // mod_assign_get_assignments lädt ALLE Aufgaben eines Kurses und rendert jede
 // intro (LaTeX/Filter) – teuer. Ergebnis kurz pro Kurs cachen.
 const ASSIGN_CACHE_TTL_MS = Number(process.env.MOODLE_ASSIGN_CACHE_TTL_MS ?? 60000);
+// Größenlimits für Download-Antworten. Zu große Tool-Antworten legt der
+// MCP-Client in eine Datei ab, die das Modell dann nicht mehr lesen kann.
+// ~4 Zeichen ≈ 1 Token.
+const MAX_FILE_TEXT_CHARS = Number(process.env.MOODLE_MAX_FILE_TEXT_CHARS ?? 30000);
+const MAX_BATCH_TEXT_CHARS = Number(process.env.MOODLE_MAX_BATCH_TEXT_CHARS ?? 80000);
 
 // ---------------------------------------------------------------------------
 // Moodle REST API helper
@@ -326,7 +331,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "moodle_download_all_submissions",
       description:
-        "Lädt alle Abgabe-Dateien einer Aufgabe in einem parallelen Batch herunter. Gibt pro Schüler-Datei { userid, filename, mimetype, size_bytes, data_base64 } zurück. Die userid bleibt als numerischer Schlüssel erhalten und ist NICHT von Pseudonymisierung betroffen – die Zuordnung userid ↔ Datei-Bytes ist damit eindeutig.",
+        "Lädt alle Abgabe-Dateien einer Aufgabe in einem parallelen Batch und gibt pro Schüler-Datei { userid, filename, mimetype, size_bytes, fileurl, extracted_text? } zurück. Text aus Text/Code, Word, Excel und PDF wird extrahiert (pro Datei und insgesamt größenbegrenzt; gekürzte Dateien sind mit truncated markiert). Bilder und andere Binärdateien kommen nur als Metadaten – sie einzeln mit moodle_download_submission_file(fileurl) laden, ebenso Dateien mit truncated oder skipped. Die userid bleibt als numerischer Schlüssel erhalten und ist NICHT von Pseudonymisierung betroffen – die Zuordnung userid ↔ Datei ist damit eindeutig.",
       inputSchema: {
         type: "object",
         properties: {
@@ -487,7 +492,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "moodle_get_submission_content",
       description:
-        "Liest den vollständigen Inhalt einer Schülerabgabe: Inline-Text (Online-Texteingabe) wird direkt zurückgegeben; hochgeladene Dateien werden mit authentifizierten Download-URLs gelistet. Erster Schritt bevor moodle_download_submission_file aufgerufen wird.",
+        "Liest den vollständigen Inhalt einer Schülerabgabe: Inline-Text (Online-Texteingabe) wird direkt zurückgegeben; hochgeladene Dateien werden mit ihrer fileurl gelistet. Erster Schritt bevor moodle_download_submission_file aufgerufen wird. Die fileurl NICHT per Web-Fetch öffnen – sie ist nur mit dem Server-Token abrufbar.",
       inputSchema: {
         type: "object",
         properties: {
@@ -500,7 +505,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "moodle_download_submission_file",
       description:
-        "Lädt eine Datei aus einer Moodle-Abgabe herunter. Text/Code-Dateien werden als lesbarer Text zurückgegeben, Word (.docx) und Excel (.xlsx) als extrahierter Text, Bilder als Bilddaten, PDFs als Base64. Die fileurl kommt aus moodle_get_submission_content.",
+        "Lädt eine Datei aus einer Moodle-Abgabe herunter. Text/Code-Dateien, Word (.docx), Excel (.xlsx) und PDF werden als extrahierter Text zurückgegeben (größenbegrenzt), Bilder als Bilddaten. Die fileurl kommt aus moodle_get_submission_content oder moodle_download_all_submissions.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1203,6 +1208,7 @@ const handleToolCall = async (request: {
           filename: string;
           fileurl: string;
           mimetype: string;
+          filesize: number;
         };
 
         const toDownload: FileEntry[] = [];
@@ -1216,6 +1222,7 @@ const handleToolCall = async (request: {
               filename: f.filename,
               fileurl: f.fileurl,
               mimetype: f.mimetype ?? "application/octet-stream",
+              filesize: f.filesize,
             });
           }
         }
@@ -1235,84 +1242,78 @@ const handleToolCall = async (request: {
           };
         }
 
-        // Step 2: download all files concurrently
-        const downloaded = await Promise.all(
+        // Step 2: extrahierbare Dateien parallel laden und in Text wandeln.
+        // Bilder/Binärdateien werden gar nicht erst geladen – nur Metadaten.
+        // KEIN Base64 in der Antwort: unlesbar fürs Modell und sprengt das
+        // Token-Limit des Clients.
+        const extracted = await Promise.all(
           toDownload.map(async (entry) => {
-            const authedUrl = entry.fileurl.includes("token=")
-              ? entry.fileurl
-              : `${entry.fileurl}?token=${MOODLE_TOKEN}`;
-            try {
-              const resp = await fetch(authedUrl);
-              if (!resp.ok) {
-                return {
-                  userid: entry.userid,
-                  filename: entry.filename,
-                  mimetype: entry.mimetype,
-                  ok: false,
-                  error: `HTTP ${resp.status}`,
-                };
-              }
-              const buffer = Buffer.from(await resp.arrayBuffer());
-              const ext = entry.filename.split(".").pop()?.toLowerCase() ?? "";
-
-              // Word/Excel: Text extrahieren statt nur Base64 zu liefern.
-              const docxMime =
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-              const xlsxMime =
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-              if (entry.mimetype === docxMime || ext === "docx") {
-                const extracted_text = await extractDocxText(buffer);
-                return {
-                  userid: entry.userid,
-                  filename: entry.filename,
-                  mimetype: entry.mimetype,
-                  size_bytes: buffer.byteLength,
-                  extracted_text,
-                  ok: true,
-                };
-              }
-              if (entry.mimetype === xlsxMime || ext === "xlsx") {
-                const extracted_text = await extractXlsxText(buffer);
-                return {
-                  userid: entry.userid,
-                  filename: entry.filename,
-                  mimetype: entry.mimetype,
-                  size_bytes: buffer.byteLength,
-                  extracted_text,
-                  ok: true,
-                };
-              }
-
+            const meta = {
+              userid: entry.userid,
+              filename: entry.filename,
+              mimetype: entry.mimetype,
+              size_bytes: entry.filesize,
+              fileurl: entry.fileurl,
+            };
+            const kind = extractKind(entry.filename, entry.mimetype);
+            if (!kind) {
               return {
-                userid: entry.userid,
-                filename: entry.filename,
-                mimetype: entry.mimetype,
-                size_bytes: buffer.byteLength,
-                data_base64: buffer.toString("base64"),
+                ...meta,
                 ok: true,
-                // TODO: PDF→PNG via pdftoppm (~100 dpi) – requires system dependency
+                note: "Kein Text extrahierbar – einzeln mit moodle_download_submission_file laden.",
               };
+            }
+            try {
+              const resp = await fetch(`${entry.fileurl}?token=${MOODLE_TOKEN}`);
+              if (!resp.ok) return { ...meta, ok: false, error: `HTTP ${resp.status}` };
+              const buffer = Buffer.from(await resp.arrayBuffer());
+              const text = await extractByKind(kind, buffer);
+              return { ...meta, size_bytes: buffer.byteLength, ok: true, text };
             } catch (e) {
-              return {
-                userid: entry.userid,
-                filename: entry.filename,
-                mimetype: entry.mimetype,
-                ok: false,
-                error: (e as Error).message,
-              };
+              return { ...meta, ok: false, error: (e as Error).message };
             }
           })
         );
 
-        const okCount = downloaded.filter((f) => f.ok).length;
+        // Step 3: Größenlimit anwenden – pro Datei und für die Gesamtantwort.
+        let budget = MAX_BATCH_TEXT_CHARS;
+        let skipped = 0;
+        const files = extracted.map((f) => {
+          if (!("text" in f) || f.text === undefined) return f;
+          const { text, ...rest } = f;
+          if (budget <= 0) {
+            skipped++;
+            return {
+              ...rest,
+              skipped: true,
+              note: "Gesamtlimit erreicht – einzeln mit moodle_download_submission_file laden.",
+            };
+          }
+          const capped = capText(text, Math.min(MAX_FILE_TEXT_CHARS, budget));
+          budget -= capped.text.length;
+          return {
+            ...rest,
+            extracted_text: capped.text,
+            ...(capped.truncated
+              ? {
+                  truncated: true,
+                  note: "Text gekürzt – vollständig mit moodle_download_submission_file laden.",
+                }
+              : {}),
+          };
+        });
+
+        const okCount = files.filter((f) => f.ok).length;
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify(
                 {
-                  summary: `${okCount}/${toDownload.length} Dateien geladen`,
-                  files: downloaded,
+                  summary:
+                    `${okCount}/${toDownload.length} Dateien verarbeitet` +
+                    (skipped > 0 ? `, ${skipped} wegen Größenlimit ohne Text` : ""),
+                  files,
                 },
                 null,
                 2
@@ -1620,14 +1621,14 @@ const handleToolCall = async (request: {
         const rawFiles =
           filePlugin?.fileareas?.find((a) => a.area === "submission_files")?.files ?? [];
 
-        // Authentifizierte Download-URLs erzeugen
+        // Bewusst KEINE URL mit Token: der Token gehört nicht in den
+        // Modell-Kontext, und das Modell soll nicht per Web-Fetch laden.
         const files = rawFiles.map((f) => ({
           filename: f.filename,
           filesize: f.filesize,
           mimetype: f.mimetype ?? "application/octet-stream",
           timemodified: f.timemodified,
           fileurl: f.fileurl,
-          downloadurl: `${f.fileurl}?token=${MOODLE_TOKEN}`,
         }));
 
         const result = {
@@ -1639,7 +1640,7 @@ const handleToolCall = async (request: {
           files,
           hint:
             files.length > 0
-              ? "Nutze moodle_download_submission_file mit der 'fileurl' um Dateien zu lesen."
+              ? "Dateien mit moodle_download_submission_file(fileurl) lesen – die fileurl nicht per Web-Fetch öffnen."
               : undefined,
         };
 
@@ -1649,7 +1650,14 @@ const handleToolCall = async (request: {
       // ------------------------------------------------------------------
       case "moodle_download_submission_file": {
         const fileUrl = args.fileurl as string;
-        const filename = (args.filename as string | undefined) ?? fileUrl.split("/").pop() ?? "";
+        const filename =
+          (args.filename as string | undefined) ??
+          decodeURIComponent(fileUrl.split("?")[0].split("/").pop() ?? "");
+
+        // Token nur an die eigene Moodle-Instanz schicken
+        if (!fileUrl.startsWith(`${MOODLE_URL}/`)) {
+          throw new Error(`fileurl gehört nicht zu ${MOODLE_URL} – Download abgelehnt.`);
+        }
 
         // Token anfügen falls noch nicht vorhanden
         const authedUrl = fileUrl.includes("token=")
@@ -1665,111 +1673,55 @@ const handleToolCall = async (request: {
           response.headers.get("content-type") ?? "application/octet-stream";
         const mimeBase = contentType.split(";")[0].trim().toLowerCase();
 
-        // --- Text / Code-Dateien ---
-        const textMimes = new Set([
-          "text/plain", "text/html", "text/css", "text/javascript",
-          "text/csv", "text/xml", "text/markdown",
-          "application/json", "application/xml", "application/javascript",
-          "application/x-httpd-php",
-        ]);
-        const textExtensions = new Set([
-          "txt", "md", "html", "htm", "css", "js", "ts", "jsx", "tsx",
-          "py", "java", "c", "cpp", "h", "cs", "php", "rb", "go",
-          "json", "xml", "yaml", "yml", "csv", "sql", "sh", "bat",
-          "rs", "swift", "kt", "r", "m", "vue", "svelte",
-        ]);
-        const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-
-        if (textMimes.has(mimeBase) || textExtensions.has(ext)) {
-          const text = await response.text();
+        // --- Text, Code, Word, Excel, PDF: Text extrahieren ---
+        const kind = extractKind(filename, mimeBase);
+        if (kind) {
+          const buffer = Buffer.from(await response.arrayBuffer());
+          let raw: string;
+          let label: string;
+          try {
+            if (kind === "pdf") {
+              const pdf = await extractPdfText(buffer);
+              raw = pdf.text;
+              label = `PDF, ${pdf.pages} Seiten`;
+            } else {
+              raw = await extractByKind(kind, buffer);
+              label =
+                kind === "docx" ? "Word-Dokument" : kind === "xlsx" ? "Excel-Tabelle" : mimeBase;
+            }
+          } catch (e) {
+            throw new Error(`${filename} konnte nicht gelesen werden: ${(e as Error).message}`);
+          }
+          const { text } = capText(raw, MAX_FILE_TEXT_CHARS);
+          const hint =
+            kind === "pdf" && raw.trim().replace(/--- Seite \d+ ---/g, "").trim() === ""
+              ? "\n\n(Kein Text gefunden – vermutlich ein gescanntes PDF ohne Textebene.)"
+              : "";
           return {
             content: [
               {
                 type: "text",
-                text: `=== ${filename} (${mimeBase}, ${text.length} Zeichen) ===\n\n${text}`,
+                text: `=== ${filename} (${label}, ${raw.length} Zeichen) ===\n\n${text}${hint}`,
               },
             ],
           };
         }
 
         // --- Bilder ---
-        const imageMimes = new Set([
-          "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
-        ]);
-        if (imageMimes.has(mimeBase)) {
+        if (IMAGE_MIMES.has(mimeBase)) {
           const buffer = await response.arrayBuffer();
-          const base64 = Buffer.from(buffer).toString("base64");
           return {
             content: [
               {
                 type: "image",
-                data: base64,
+                data: Buffer.from(buffer).toString("base64"),
                 mimeType: mimeBase as string,
               },
             ],
           };
         }
 
-        // --- PDFs ---
-        if (mimeBase === "application/pdf" || ext === "pdf") {
-          const buffer = await response.arrayBuffer();
-          const base64 = Buffer.from(buffer).toString("base64");
-          // MCP embedded resource für PDFs
-          return {
-            content: [
-              {
-                type: "text",
-                text: `PDF-Datei: ${filename} (${buffer.byteLength} Bytes)\nBase64-kodiert für den PDF-Viewer:\n${base64}`,
-              },
-            ],
-          };
-        }
-
-        // --- Office-Dokumente (Word / Excel): Text extrahieren ---
-        const docxMime =
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-        const xlsxMime =
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-        if (mimeBase === docxMime || ext === "docx") {
-          const buffer = Buffer.from(await response.arrayBuffer());
-          try {
-            const text = await extractDocxText(buffer);
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `=== ${filename} (Word-Dokument, ${text.length} Zeichen extrahiert) ===\n\n${text}`,
-                },
-              ],
-            };
-          } catch (e) {
-            throw new Error(
-              `Word-Datei ${filename} konnte nicht gelesen werden: ${(e as Error).message}`
-            );
-          }
-        }
-
-        if (mimeBase === xlsxMime || ext === "xlsx") {
-          const buffer = Buffer.from(await response.arrayBuffer());
-          try {
-            const text = await extractXlsxText(buffer);
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `=== ${filename} (Excel-Tabelle, ${text.length} Zeichen extrahiert) ===\n\n${text}`,
-                },
-              ],
-            };
-          } catch (e) {
-            throw new Error(
-              `Excel-Datei ${filename} konnte nicht gelesen werden: ${(e as Error).message}`
-            );
-          }
-        }
-
-        // --- Sonstige Binärdateien ---
+        // --- Sonstige Binärdateien: nur Metadaten, keine URL mit Token ---
         const buffer = await response.arrayBuffer();
         return {
           content: [
@@ -1779,10 +1731,9 @@ const handleToolCall = async (request: {
                 `Datei: ${filename}`,
                 `MIME-Typ: ${mimeBase}`,
                 `Größe: ${buffer.byteLength} Bytes`,
-                `Direkt-Download-URL (mit Token): ${authedUrl}`,
                 "",
                 "Diese Datei kann nicht automatisch angezeigt werden.",
-                "Öffne die Download-URL im Browser oder lade sie manuell herunter.",
+                "Bitte die Lehrkraft, sie direkt in Moodle zu öffnen.",
               ].join("\n"),
             },
           ],
